@@ -13,7 +13,21 @@
  *   - Everything kills. Spikes go where a miss deserves one, never as traffic
  *     in the main corridor.
  *   - Every map progresses in +X. Vertical is EXTRA BIG's job, and the
- *     headless autopilot reads forward progress on that axis. */
+ *     headless autopilot reads forward progress on that axis.
+ *
+ *   - THE ROPE IS NEVER OPTIONAL. Every map holds at least one gap that
+ *     cannot be crossed on foot, by pad, or by wall kick. The yardsticks:
+ *
+ *         running jump     259px across, 142px up
+ *         hop off a step   ~330px, because falling downhill buys airtime
+ *         launch pad       ~890px at 45 degrees, ~1090px at a flatter one
+ *
+ *     so a gap that must cost a thwip is >340px with no pad before it, or
+ *     >1250px with one. `node tools/ropecheck.js` replays every map with
+ *     anchor-targeting switched off and fails if any can still be finished;
+ *     run it after touching terrain. Seven maps once cleared that way,
+ *     including the first level of the game — which meant the best thing in
+ *     it was something a player could quietly opt out of. */
 (function (global) {
   'use strict';
   var T = global.THWIP, L = T.Levels, K = L.kit;
@@ -43,22 +57,28 @@
   }
 
   /* ---------------------------------------------------------------- 1 ----
-   * LAUNCH PAD — the mode's handshake. Two pads clear the two gaps on their
-   * own, so the map is winnable without a single thwip; the ring line over the
-   * top is simply quicker. Nothing here can kill you but the pits. */
+   * LAUNCH PAD — the mode's handshake, and it teaches the combination rather
+   * than the parts.
+   *
+   * Gap one is 340px: the pad clears it alone, so you learn what a pad does.
+   * Gap two is 1080px and a pad only throws you about 890, so the launch puts
+   * you over open air and you have to thwip out of it. That ordering is the
+   * whole lesson. The first version made both gaps pad-clearable, which meant
+   * the opening map of a swinging game could be finished without ever firing
+   * the rope — the worst possible thing to teach first. */
   function launchpad() {
     var F = 620, B = 1100;
-    var solids = floors([[-60, 560, F], [900, 1420, F], [1760, 2500, F]], B);
+    var solids = floors([[-60, 560, F], [900, 1460, F], [2540, 3160, F]], B);
     solids.push(backstop(-200, 1300));
     return {
       spawn: { x: 90, y: F },
-      goal: { x: 2380, y: F - 100, w: 56, h: 100 },
+      goal: { x: 3020, y: F - 100, w: 56, h: 100 },
       killY: 1160,
       solids: solids,
-      anchors: ringPath([{ x: 660, y: F - CLR }, { x: 2340, y: F - CLR }], 205, 14, 5),
+      anchors: ringPath([{ x: 660, y: F - CLR }, { x: 2980, y: F - CLR }], 205, 14, 5),
       boosts: [
         boost(400, F - 24, 130, 24, 0.74, -0.67, 1400),
-        boost(1220, F - 24, 130, 24, 0.74, -0.67, 1400)
+        boost(1280, F - 24, 130, 24, 0.74, -0.67, 1400)
       ],
       enemies: []
     };
@@ -87,20 +107,27 @@
    * it, so every arc bottoms out lower than the last. Reading a descent. */
   function dropin() {
     var B = 1560;
+    /* Gaps are 430px, not 280.
+     *
+     * A running jump only carries 259px on the flat, but this map descends,
+     * and falling to the next deck buys extra airtime: a hop off a 200px step
+     * covers about 330px. Gaps sized against the flat-ground number were all
+     * quietly walkable on the way down, which made a map about reading a
+     * descent into a map about stepping down some stairs. */
     var solids = floors([
-      [-60, 620, 420], [900, 1420, 620], [1700, 2200, 840], [2480, 3120, 1040]
+      [-60, 620, 420], [1050, 1570, 620], [2000, 2500, 840], [2930, 3570, 1040]
     ], B);
     solids.push(backstop(-400, 1960));
     return {
       spawn: { x: 90, y: 420 },
-      goal: { x: 2980, y: 940, w: 56, h: 100 },
+      goal: { x: 3430, y: 940, w: 56, h: 100 },
       killY: 1620,
       solids: solids,
       anchors: ringPath([
-        { x: 300, y: 90 }, { x: 1100, y: 250 }, { x: 1900, y: 470 }, { x: 2920, y: 700 }
+        { x: 300, y: 90 }, { x: 1200, y: 250 }, { x: 2100, y: 470 }, { x: 3340, y: 700 }
       ], 200, 10, 29),
       hazards: [
-        hazard(620, 690, 280, 30), hazard(1420, 910, 280, 30), hazard(2200, 1110, 280, 30)
+        hazard(620, 690, 430, 30), hazard(1570, 910, 430, 30), hazard(2500, 1110, 430, 30)
       ],
       enemies: []
     };
@@ -112,7 +139,12 @@
    * exist in the stretches between them. */
   function kickflip() {
     var F = 700, B = 1320;
-    var solids = floors([[-60, 3960, F]], B);
+    /* The deck runs out 500px short of the goal. This is a wall map and stays
+     * one — three mandatory chimneys, no rope between them — but it used to
+     * have unbroken ground the whole way, which meant the entire map could be
+     * walked. One rope at the end keeps the map honest about which game it is
+     * in without diluting what it is about. */
+    var solids = floors([[-60, 3560, F], [4060, 4520, F]], B);
     solids.push(backstop(-500, 1900));
     var xs = [620, 1740, 2860];
     xs.forEach(function (x) { solids = solids.concat(chimney(x, F, 340)); });
@@ -122,10 +154,10 @@
      * just throws you into the outside of the wall over and over — the two
      * ideas fight each other. Here the walls are the whole map; the rope only
      * comes back once the last chimney is behind you. */
-    var anchors = ringPath([{ x: 3340, y: 350 }, { x: 3820, y: 350 }], 195, 8, 61);
+    var anchors = ringPath([{ x: 3600, y: 350 }, { x: 4040, y: 350 }], 195, 8, 61);
     return {
       spawn: { x: 90, y: F },
-      goal: { x: 3880, y: F - 100, w: 56, h: 100 },
+      goal: { x: 4380, y: F - 100, w: 56, h: 100 },
       killY: 1380,
       solids: solids,
       anchors: anchors,
@@ -199,18 +231,23 @@
     // sheer face at the bottom of a bowl is an inside corner: it hides the
     // whole ring line behind itself, so a player who lands short has nothing
     // to shoot and no way out. The steps make the slow route possible.
+    /* The terraces climb OUT of the bowl but stop 440px short of the goal
+     * deck. They exist so a player who lands badly is not wedged in an inside
+     * corner — but as a full route to the exit they turned the bowl into a
+     * staircase, and the pad at the bottom became decorative. Now they buy you
+     * a recovery and the last gap still costs you a rope. */
     var solids = floors([
       [-60, 700, 420], [700, 900, 700], [900, 1900, 1020],
       [1900, 2060, 890], [2060, 2220, 760], [2220, 2380, 630],
-      [2380, 2540, 500], [2540, 2900, 420]
+      [2380, 2620, 500], [3060, 3560, 420]
     ], B);
     solids.push(backstop(-400, 1900));
     return {
       spawn: { x: 90, y: 420 },
-      goal: { x: 2760, y: 320, w: 56, h: 100 },
+      goal: { x: 3400, y: 320, w: 56, h: 100 },
       killY: 1560,
       solids: solids,
-      anchors: ringPath([{ x: 300, y: 90 }, { x: 1400, y: 300 }, { x: 2740, y: 90 }], 210, 10, 83),
+      anchors: ringPath([{ x: 300, y: 90 }, { x: 1400, y: 300 }, { x: 3360, y: 90 }], 210, 10, 83),
       // one pad across the whole bowl floor: you cannot fall in and miss it,
       // and it throws you just high enough to reach the ring line above
       boosts: [boost(940, 996, 920, 24, 0.38, -0.925, 1640)],
@@ -281,8 +318,11 @@
     var B = 1560;
     // decks butt straight up against each other: each step is 240px, well over
     // a jump, so the chimney beside it is the only way onto the next one
+    // like KICKFLIP: three storeys of mandatory chimney, then one gap that
+    // only the rope crosses, so the map cannot be finished on walls alone
     var solids = floors([
-      [-60, 1000, 900], [1000, 1920, 660], [1920, 2840, 420], [2840, 3700, 180]
+      [-60, 1000, 900], [1000, 1920, 660], [1920, 2840, 420], [2840, 3400, 180],
+      [3800, 4280, 180]
     ], B);
     solids.push(backstop(-200, 2000));
     solids = solids.concat(
@@ -292,10 +332,11 @@
     );
     // the ceilings close off almost the whole map to rope, by design — the two
     // ends are the only places a ring is any use
-    var anchors = [ring(200, 620), ring(300, 430), ring(3080, -60), ring(3320, -20)];
+    var anchors = [ring(200, 620), ring(300, 430),
+      ring(3100, -40), ring(3340, -60), ring(3580, -40), ring(3820, -20)];
     return {
       spawn: { x: 90, y: 900 },
-      goal: { x: 3560, y: 80, w: 56, h: 100 },
+      goal: { x: 4140, y: 80, w: 56, h: 100 },
       killY: 1620,
       solids: solids,
       anchors: anchors,
@@ -337,30 +378,31 @@
    * carrying pad speed through the air and only thwipping to correct. */
   function slingshot() {
     var F = 620, B = 1200;
+    /* Gaps are 1250px and a pad only throws about 1090, so every single hop
+     * is pad-then-rope: the launch buys you most of the distance and the
+     * thwip finishes it. The gaps used to be 580-680, which the pads cleared
+     * outright — the rings were decoration and the map played itself. */
     var solids = floors([
-      [-60, 520, F], [1100, 1420, F], [2100, 2420, F], [3100, 3420, F], [4060, 4700, F]
+      [-60, 520, F], [1770, 2090, F], [3340, 3660, F], [4910, 5550, F]
     ], B);
     solids.push(backstop(-300, 1600));
+    var anchors = [];
+    [[760, 1620], [2330, 3190], [3900, 4760]].forEach(function (seg, i) {
+      anchors = anchors.concat(ringPath(
+        [{ x: seg[0], y: 250 }, { x: seg[1], y: 250 }], 215, 16, 51 + i * 17));
+    });
     return {
       spawn: { x: 90, y: F },
-      goal: { x: 4560, y: F - 100, w: 56, h: 100 },
+      goal: { x: 5400, y: F - 100, w: 56, h: 100 },
       killY: 1260,
       solids: solids,
-      // sparse on purpose, but still a continuous line: the pads are the fast
-      // route, not the only route, and a blown pad has to be recoverable
-      anchors: [
-        ring(780, 250), ring(1020, 210), ring(1300, 250),
-        ring(1780, 230), ring(2020, 190), ring(2300, 230),
-        ring(2780, 230), ring(3020, 190), ring(3300, 230),
-        ring(3720, 240), ring(3980, 250)
-      ],
+      anchors: anchors,
       boosts: [
         boost(360, F - 24, 140, 24, 0.78, -0.63, 1560),
-        boost(1180, F - 24, 140, 24, 0.78, -0.63, 1560),
-        boost(2180, F - 24, 140, 24, 0.78, -0.63, 1560),
-        boost(3180, F - 24, 140, 24, 0.78, -0.63, 1560)
+        boost(1850, F - 24, 140, 24, 0.78, -0.63, 1560),
+        boost(3420, F - 24, 140, 24, 0.78, -0.63, 1560)
       ],
-      hazards: [hazard(520, 700, 580, 30), hazard(1420, 700, 680, 30)],
+      hazards: [hazard(520, 700, 1250, 30), hazard(2090, 700, 1250, 30)],
       enemies: []
     };
   }
@@ -574,29 +616,29 @@
    * thing the autopilot is genuinely worse at than a person. Re-run the sim
    * after changing a layout and these want revisiting with it. */
   var PACK = [
-    ['launchpad', 'LAUNCH PAD', launchpad, [8, 11, 16],
+    ['launchpad', 'LAUNCH PAD', launchpad, [16, 23, 34],
       'Yellow pads throw you. Hold RIGHT MOUSE to slow time — the meter is small.'],
     ['quickstep', 'QUICKSTEP', quickstep, [9, 13, 18],
       'No pads, no tricks. Keep the rope moving and do not touch the floor.'],
-    ['dropin', 'DROP IN', dropin, [18, 27, 39],
+    ['dropin', 'DROP IN', dropin, [19, 28, 41],
       'The deck falls away. Attach high and let the arc carry you over the gap.'],
-    ['kickflip', 'KICKFLIP', kickflip, [25, 36, 51],
+    ['kickflip', 'KICKFLIP', kickflip, [24, 35, 50],
       'Press into a wall while falling to slide it. Jump to kick off. There is no rope route here.'],
     ['snapdecision', 'SNAP DECISION', snapdecision, [8, 11, 17],
       'Orange rings burn through in under a second. The high line is safe and slow.'],
     ['pendulum', 'PENDULUM', pendulumMap, [10, 14, 21],
       'Blue rings slide. Fire where the ring will be, not where it is.'],
-    ['halfpipe', 'HALF PIPE', halfpipe, [13, 18, 27],
+    ['halfpipe', 'HALF PIPE', halfpipe, [20, 29, 43],
       'Drop into the bowl. The pads at the bottom pay back more than the fall cost you.'],
     ['crosswind', 'CROSSWIND', crosswind, [10, 14, 21],
       'These movers run vertically — a ring drifting down stretches the arc out from under you.'],
     ['grinder', 'THE GRINDER', grinder, [14, 20, 30],
       'Spiked floor, spiked lid. Keep the rope short.'],
-    ['chimney', 'CHIMNEY', chimneyMap, [32, 47, 66],
+    ['chimney', 'CHIMNEY', chimneyMap, [31, 45, 64],
       'Three shafts, three storeys. The deck behind you is gone — the climb is the route.'],
     ['fuse', 'FUSE', fuseMap, [11, 16, 23],
       'Every ring burns and none of them regrow in time. Forward only.'],
-    ['slingshot', 'SLINGSHOT', slingshot, [17, 25, 36],
+    ['slingshot', 'SLINGSHOT', slingshot, [16, 24, 34],
       'Four pads, four rings. Carry the speed and thwip only to correct.'],
     ['cradle', "CAT'S CRADLE", cradle, [13, 19, 27],
       'Movers on every axis. There is always a hold — find it before the floor finds you.'],

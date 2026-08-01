@@ -86,8 +86,12 @@
     return d;
   };
 
-  /* Best anchor that is forward, above, hittable, and close to the ideal rope. */
+  /* Best anchor that is forward, above, hittable, and close to the ideal rope.
+   * With opts.noRope set, this always fails — that is how tools/ropecheck.js
+   * measures how much of a map can be completed on foot, pads and walls
+   * alone, with the rope taken away. */
   Bot.prototype.pick = function (minForward) {
+    if (this.opts.noRope) return null;
     var w = this.w, p = w.player, cx = p.cx(), cy = p.cy();
     var best = null, bestScore = -Infinity;
     var targets = w.buildTargets();
@@ -106,6 +110,7 @@
   /* Climbing wants height above all else: take the rung that gains the most,
    * with a mild preference for a rope near the ideal so the arc has room. */
   Bot.prototype.pickUp = function () {
+    if (this.opts.noRope) return null;
     var w = this.w, p = w.player, cx = p.cx(), cy = p.cy();
     var best = null, bestScore = -Infinity;
     var targets = w.buildTargets();

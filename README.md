@@ -198,6 +198,7 @@ art does not cost the no-build-step promise.
 node tools/simtest.js              # everything: 3 modes, 26 map slots
 node tools/simtest.js fast         # one mode
 node tools/simtest.js big spire    # one map
+node tools/ropecheck.js            # can any map be beaten without swinging?
 ```
 
 Loads the actual game modules and plays every map of every mode with an
@@ -217,6 +218,19 @@ and that fuse rings snap and regrow.
 The autopilot has three behaviours — run, climb and shaft — and varies its
 release angle slightly on each retry, because a bot that plays a map identically
 every time dies in exactly the same place forever.
+
+`ropecheck.js` is the counterpart to all that: where simtest proves a map *can*
+be cleared, ropecheck proves it cannot be cleared **the wrong way**. It replays
+every map with anchor-targeting switched off — jumps, launch pads and wall kicks
+still allowed, since those are deliberate mechanics — and fails if any of them
+still reaches the goal.
+
+That check exists because seven maps used to pass it, including the first level
+of the game, whose gaps were deliberately kept "under 210px so a pure
+run-and-jump clear also exists". A swinging game whose tutorial teaches you that
+swinging is optional has buried its own best idea. Every map now contains at
+least one gap that only the rope crosses: **>340px** with no pad before it, or
+**>1250px** with one.
 
 `tools/trace.js <level> <seconds>` dumps a per-frame trace of the same run.
 `tools/shotserver.js` and `tools/harness.js` are the browser-side equivalents:

@@ -196,14 +196,20 @@
   }
 
   /* ---------------------------------------------------------------- level 1
-   * Flat, forgiving, one long ring line. Gaps stay under 210px so a pure
-   * run-and-jump clear also exists — the swing line is just far faster. */
+   * Flat, forgiving, one long ring line.
+   *
+   * Every gap is 320px against a 259px running jump, so none of them can be
+   * hopped. This level used to keep them under 210 "so a pure run-and-jump
+   * clear also exists" — which sounded generous and was a mistake: it made the
+   * first level of a swinging game teach players that they never have to
+   * swing. Forgiving now means a dense ring line and a wide margin for a
+   * sloppy arc, not an alternative route that skips the game. */
   function skyline() {
     var FLOOR = 620, BOTTOM = 1100;
     var solids = kit.floors([
-      [-60, 700, FLOOR], [890, 1400, FLOOR], [1600, 2100, FLOOR],
-      [2300, 2820, FLOOR], [3020, 3560, FLOOR], [3760, 4300, FLOOR],
-      [4500, 5040, FLOOR]
+      [-60, 660, FLOOR], [980, 1420, FLOOR], [1740, 2160, FLOOR],
+      [2480, 2900, FLOOR], [3220, 3640, FLOOR], [3960, 4380, FLOOR],
+      [4700, 5040, FLOOR]
     ], BOTTOM);
     solids.push(solid(-60, -200, 60, 1300, 'wall'));
 
@@ -220,13 +226,14 @@
       solids: solids,
       anchors: anchors,
       hazards: [],
+      // patrols kept inside the new, shorter plates, and the armored unit off
+      // the final plate so it can never end up parked on the goal
       enemies: [
-        enemy('grunt', 1120, FLOOR, 930, 1360),
-        enemy('grunt', 1830, FLOOR, 1640, 2060),
-        enemy('grunt', 2560, FLOOR, 2340, 2780),
-        enemy('shooter', 3320, FLOOR),
-        enemy('grunt', 4020, FLOOR, 3800, 4260),
-        enemy('armor', 4700, FLOOR, 4510, 5030)
+        enemy('grunt', 1120, FLOOR, 1000, 1400),
+        enemy('grunt', 1900, FLOOR, 1760, 2140),
+        enemy('armor', 2650, FLOOR, 2500, 2880),
+        enemy('shooter', 3400, FLOOR),
+        enemy('grunt', 4120, FLOOR, 3980, 4360)
       ]
     };
   }
@@ -343,7 +350,7 @@
   var CLASSIC = ['skyline', 'rivet', 'gauntlet'];
 
   register({
-    id: 'skyline', name: 'SKYLINE WARMUP', build: skyline, par: [11, 16, 24],
+    id: 'skyline', name: 'SKYLINE WARMUP', build: skyline, par: [14, 20, 30],
     hint: 'Jump, then click a ring to thwip. Hold to swing, let go past the low point.'
   });
   register({
