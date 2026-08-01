@@ -174,6 +174,22 @@ function layout() {
       ok(isFinite(d.bounds.minX) && isFinite(d.bounds.maxY), tag + ': bounds are not finite');
       ok(d.par && d.par[0] < d.par[1] && d.par[1] < d.par[2], tag + ': par times are not ascending');
 
+      /* Where contact kills, an enemy that can reach the spawn is not an
+       * obstacle, it is a soft-lock: you restart into it and die again
+       * forever. Patrols must stay clear of the spawn, and no shooter may have
+       * a line to it from inside its range. */
+      if (mode.fail === 'death') {
+        var sx = d.spawn.x, sy = d.spawn.y;
+        w.enemies.forEach(function (e) {
+          var reach = e.type === 'shooter'
+            ? M.dist(e.cx(), e.cy(), sx, sy - 16) < C.SHOOTER_RANGE &&
+              w.hasLineOfSight(e.cx(), e.cy(), sx, sy - 16)
+            : (e.minX < sx + 140 && e.maxX > sx - 140 && Math.abs(e.cy() - sy) < 200);
+          ok(!reach, tag + ': ' + e.type + ' @' + Math.round(e.cx()) +
+            ' can reach the spawn, so a death here loops forever');
+        });
+      }
+
       // A tower is only a climb if every rung can reach the next one up. One
       // unreachable rung does not make it hard, it makes it impossible.
       if (d.axis === 'y') {

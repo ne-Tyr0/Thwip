@@ -268,7 +268,10 @@
         hazard(1790, 830, 240, 26), hazard(3110, 670, 180, 26)
       ],
       enemies: [
-        enemy('grunt', 400, 760, 60, 600),
+        // patrol stops well short of the spawn: harmless under CLASSIC's shove,
+        // but under FAST's rules a grunt standing on the spawn point means you
+        // restart into it and die again forever
+        enemy('grunt', 400, 760, 300, 600),
         enemy('shooter', 1000, 760, 910, 1170),
         enemy('grunt', 1600, 760, 1500, 1720),
         enemy('armor', 2200, 760, 2070, 2550),
@@ -321,7 +324,7 @@
         hazard(4830, 710, 210, 26)
       ],
       enemies: [
-        enemy('grunt', 320, 800, 60, 520),
+        enemy('grunt', 320, 800, 260, 520),   // clear of the spawn, as in rivet
         enemy('shooter', 980, 800),
         enemy('grunt', 1600, 640, 1545, 1890),
         enemy('armor', 2100, 640, 1960, 2330),
