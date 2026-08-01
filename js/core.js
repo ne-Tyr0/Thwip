@@ -167,6 +167,25 @@
   };
 
   global.THWIP = global.THWIP || {};
+  /* One place for the UI typeface. skin.js prepends a custom family here and
+   * mirrors it into the --font CSS variable, so the stylesheet never has to
+   * know whether assets/ exists.
+   *
+   * Specified face: DEPARTURE MONO (SIL OFL, departuremono.com). Chosen for
+   * three reasons, in order of how much they matter:
+   *
+   *   1. It is monospaced. The clock is the most-read element in the game and
+   *      it updates every frame; a proportional face makes the digits change
+   *      width and the whole readout jitters. Non-negotiable.
+   *   2. It is drawn on a pixel grid, which is the art direction.
+   *   3. It reads as a departure board — a timing device — which is exactly
+   *      what this game is.
+   *
+   * The fallback chain degrades to the system monospace, so the layout is
+   * identical whether or not the font is installed; only the character
+   * changes. Drop the file in assets/fonts/ and name it in the manifest. */
+  global.THWIP.FONT = '"Departure Mono", "Silkscreen", ui-monospace, ' +
+    'SFMono-Regular, Menlo, Consolas, monospace';
   global.THWIP.C = C;
   global.THWIP.P = P;
   global.THWIP.M = M;

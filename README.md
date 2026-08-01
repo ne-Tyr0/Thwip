@@ -156,7 +156,9 @@ winds the clock up.
 
 ```
 index.html          canvas, mode select, level grid, results
+assets/             optional art — safe to delete entirely
 js/core.js          tuning constants, palette, math helpers
+js/skin.js          optional art layer; every slot falls back to primitives
 js/physics.js       AABB sweeping, raycasts, the pendulum integrator
 js/player.js        movement, jumping, wall kicks, the taut/slack rope machine
 js/enemies.js       grunt / shooter / armor, and pinning an enemy to a surface
@@ -176,6 +178,19 @@ tests drive the real simulation headlessly.
 Personal bests are keyed by **mode and level**, because the same three layouts
 played under two rule sets are not comparable times. Bests from the original
 single-mode build are migrated to CLASSIC on first load.
+
+## Custom art
+
+All art is canvas primitives by default and always can be. `assets/manifest.js`
+declares optional sprites and a font; anything you do not supply keeps drawing
+itself, so you can replace the character alone and leave everything else. See
+`assets/README.md` for frame sizes and alignment, and run
+`node tools/make-placeholders.js` for correctly-sized templates to paint over.
+
+The manifest is a `.js` file rather than `.json` deliberately: a page opened
+straight off disk cannot `fetch()` a sibling file, but it can always load a
+`<script>`. Images and `@font-face` both load fine from `file://`, so having
+art does not cost the no-build-step promise.
 
 ## Development
 

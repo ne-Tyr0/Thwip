@@ -4,6 +4,15 @@
   'use strict';
   var T = global.THWIP, C = T.C, P = T.P, M = T.M;
 
+  /* The optional art layer. When a slot is unset every one of these calls is
+   * a cheap `false` and the primitive path below runs instead, so the game is
+   * fully playable with no assets/ folder at all. */
+  var Skin = T.Skin || { enabled: false, pixel: false,
+    has: function () { return false; }, meta: function () { return null; },
+    img: function () { return null; },
+    drawFrame: function () { return false; }, drawPivot: function () { return false; },
+    drawNine: function () { return false; }, drawTiledX: function () { return false; } };
+
   /* ---- particles ------------------------------------------------------- */
   var FX = {
     list: [],
@@ -157,6 +166,25 @@
     ctx.globalAlpha = 1;
 
     var baseY = level.bounds.maxY;
+
+    /* Skinned skyline: three tiled strips at the same parallax factors the
+     * procedural city uses, so the depth reads identically. */
+    var slots = ['city.far', 'city.mid', 'city.near'];
+    if (Skin.has(slots[0]) || Skin.has(slots[1]) || Skin.has(slots[2])) {
+      for (var ci = 0; ci < 3; ci++) {
+        if (!Skin.has(slots[ci])) continue;
+        var sm = Skin.meta(slots[ci]);
+        var f = layers[ci].f;
+        var sox = -cam.x * f + view.w * 0.5;
+        var soy = -cam.y * f + view.h * 0.5 + layers[ci].top * 0.5 + baseY * f * 0.35;
+        ctx.save();
+        ctx.translate(sox, soy);
+        Skin.drawTiledX(ctx, slots[ci], -sox / 1 - 200, -sox + view.w + 200, 0, sm.h || 300);
+        ctx.restore();
+      }
+      return;
+    }
+
     for (var li = 0; li < layers.length; li++) {
       var L = layers[li];
       var ox = -cam.x * L.f + view.w * 0.5;
@@ -195,6 +223,17 @@
     for (i = 0; i < level.solids.length; i++) {
       s = level.solids[i];
       if (!visible(vis, s)) continue;
+
+      /* Nine-sliced by `kind`, so one tile serves every rectangle in the game
+       * from a 60px lip to a 30,000px tower face. Falls through to the
+       * primitive slab whenever the slot is unset. */
+      var slot = 'solid.' + (s.kind === 'ground' ? 'ground' : s.kind === 'wall' ? 'wall' : 'block');
+      if (Skin.has(slot) || Skin.has('solid.block')) {
+        Skin.drawNine(ctx, Skin.has(slot) ? slot : 'solid.block',
+          { x: s.x, y: s.y, w: s.w, h: s.h });
+        continue;
+      }
+
       ctx.fillStyle = P.solid;
       ctx.fillRect(s.x, s.y, s.w, s.h);
       ctx.fillStyle = P.solidTop;
@@ -243,6 +282,16 @@
     for (var i = 0; i < level.hazards.length; i++) {
       var h = level.hazards[i];
       if (!visible(vis, h)) continue;
+      // spikes tile along their bed rather than stretching, so a 190px bed and
+      // a 1850px bed have the same tooth size and read at the same danger
+      if (Skin.has('hazard')) {
+        var hm = Skin.meta('hazard'), tw = hm.frameW || 32;
+        for (var hx = h.x; hx < h.x + h.w; hx += tw) {
+          var seg = Math.min(tw, h.x + h.w - hx);
+          Skin.drawFrame(ctx, 'hazard', { x: hx, y: h.y, w: seg, h: h.h }, 0, 0, false);
+        }
+        continue;
+      }
       ctx.fillStyle = 'rgba(255,84,112,0.18)';
       ctx.fillRect(h.x, h.y - 6, h.w, h.h + 6);
       ctx.fillStyle = P.hazard;
@@ -259,6 +308,26 @@
     }
   }
 
+  /* Burn-down arc: how much fuse is left, drawn as the ring unwinding
+   * clockwise from the top like a clock running out. You read this off the
+   * rope mid-swing, never off the HUD, so it is never left to the art. */
+  function drawBurn(ctx, a, cx, cy, time) {
+    var burn = M.clamp(a.load / a.fuse, 0, 1);
+    ctx.strokeStyle = P.hazard;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 11, -Math.PI / 2, -Math.PI / 2 + burn * 6.283);
+    ctx.stroke();
+    if (burn > 0.6) {
+      ctx.globalAlpha = (burn - 0.6) * 2.5 * (0.5 + 0.5 * Math.sin(time * 30));
+      ctx.fillStyle = P.hazard;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
   function drawAnchors(ctx, level, vis, time, player) {
     var i, a, cx, cy;
     var aimRef = player.web ? player.web.ref : null;
@@ -269,6 +338,7 @@
 
       // a snapped ring: the bracket is still there, the ring is not
       if (a.broken) {
+        if (Skin.has('ring.broken')) { Skin.drawFrame(ctx, 'ring.broken', a, 0, 0, false); continue; }
         cx = a.x + a.w * 0.5; cy = a.y + a.h * 0.5;
         ctx.strokeStyle = P.fuseSpent;
         ctx.lineWidth = 2;
@@ -297,6 +367,7 @@
       }
 
       if (a.kind === 'beam') {
+        if (Skin.has('beam')) { Skin.drawNine(ctx, 'beam', a); continue; }
         ctx.fillStyle = P.beam;
         ctx.fillRect(a.x, a.y, a.w, a.h);
         ctx.fillStyle = live ? '#fff2c4' : P.anchor;
@@ -313,6 +384,16 @@
       var pulse = 0.5 + 0.5 * Math.sin(time * 2.2 + cx * 0.01);
       // colour carries the type: yellow holds, orange burns, blue slides
       var base = a.fuse ? P.fuse : (a.move ? P.mover : P.anchor);
+
+      var rslot = a.fuse ? 'ring.fuse' : (a.move ? 'ring.mover' : 'ring.normal');
+      if (Skin.has(rslot)) {
+        Skin.drawFrame(ctx, rslot, a, 0, 0, false);
+        // the burn-down arc stays in code: it is a timer you have to read,
+        // and it must look the same regardless of who drew the ring
+        if (a.fuse && a.load > 0.01) drawBurn(ctx, a, cx, cy, time);
+        continue;
+      }
+
       ctx.strokeStyle = live ? '#fff2c4' : base;
       ctx.lineWidth = live ? 4 : 3;
       ctx.globalAlpha = live ? 1 : 0.55 + pulse * 0.3;
@@ -325,25 +406,7 @@
       ctx.stroke();
       ctx.globalAlpha = 1;
 
-      /* Burn-down arc: how much fuse is left, drawn as the ring unwinding.
-       * You need to read this from the rope, not from the HUD, so it reads
-       * clockwise from the top like a clock running out. */
-      if (a.fuse && a.load > 0.01) {
-        var burn = M.clamp(a.load / a.fuse, 0, 1);
-        ctx.strokeStyle = P.hazard;
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.arc(cx, cy, 11, -Math.PI / 2, -Math.PI / 2 + burn * 6.283);
-        ctx.stroke();
-        if (burn > 0.6) {
-          ctx.globalAlpha = (burn - 0.6) * 2.5 * (0.5 + 0.5 * Math.sin(time * 30));
-          ctx.fillStyle = P.hazard;
-          ctx.beginPath();
-          ctx.arc(cx, cy, 16, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.globalAlpha = 1;
-        }
-      }
+      if (a.fuse && a.load > 0.01) drawBurn(ctx, a, cx, cy, time);
 
       ctx.fillStyle = live ? '#ffffff' : base;
       ctx.fillRect(cx - 2, cy - 2, 4, 4);
@@ -389,18 +452,30 @@
       ctx.globalAlpha = 1;
       ctx.restore();
 
-      ctx.fillStyle = P.boostDim;
-      ctx.fillRect(b.x, b.y, b.w, b.h);
-      ctx.fillStyle = glow > 0.05 ? '#fff3cf' : P.boost;
-      ctx.fillRect(b.x, b.y, b.w, 6);
-      for (var sx = b.x + 8; sx < b.x + b.w - 6; sx += 22) {
-        ctx.fillRect(sx, b.y + 9, 10, 4);
+      // the pad body; the chevron cone above stays in code because it is what
+      // tells you which way you are about to be thrown
+      if (Skin.has('boost')) {
+        Skin.drawNine(ctx, 'boost', b);
+      } else {
+        ctx.fillStyle = P.boostDim;
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.fillStyle = glow > 0.05 ? '#fff3cf' : P.boost;
+        ctx.fillRect(b.x, b.y, b.w, 6);
+        for (var sx = b.x + 8; sx < b.x + b.w - 6; sx += 22) {
+          ctx.fillRect(sx, b.y + 9, 10, 4);
+        }
       }
     }
   }
 
   function drawGoal(ctx, goal, time) {
     var x = goal.x, y = goal.y, w = goal.w, h = goal.h;
+    if (Skin.has('goal')) {
+      ctx.fillStyle = 'rgba(6,214,160,0.16)';
+      ctx.fillRect(x - 14, y - 26, w + 28, h + 26);
+      Skin.drawNine(ctx, 'goal', goal);
+      return;
+    }
     ctx.fillStyle = 'rgba(6,214,160,0.16)';
     ctx.fillRect(x - 14, y - 26, w + 28, h + 26);
     ctx.fillStyle = P.goal;
@@ -414,7 +489,7 @@
     ctx.lineWidth = 3;
     ctx.strokeRect(x, y, w, h);
     ctx.fillStyle = '#bafce9';
-    ctx.font = 'bold 15px ui-monospace, monospace';
+    ctx.font = 'bold 15px ' + T.FONT;
     ctx.textAlign = 'center';
     ctx.fillText('GOAL', x + w * 0.5, y - 14 - Math.sin(time * 3) * 3);
     ctx.textAlign = 'left';
@@ -423,6 +498,19 @@
   /* ---- enemies --------------------------------------------------------- */
   function drawCocoon(ctx, e, time) {
     var x = e.x - 3, y = e.y - 3, w = e.w + 6, h = e.h + 6;
+    if (Skin.has('enemy.cocoon')) {
+      if (e.stuckDir === 'air' && e.strand) {
+        ctx.strokeStyle = 'rgba(242,247,255,0.7)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(e.strand.x, e.strand.y);
+        ctx.lineTo(e.cx(), e.cy());
+        ctx.stroke();
+      }
+      // nine-sliced, because the three enemy types are three different sizes
+      Skin.drawNine(ctx, 'enemy.cocoon', { x: x, y: y, w: w, h: h });
+      return;
+    }
     if (e.stuckDir === 'air' && e.strand) {
       ctx.strokeStyle = 'rgba(242,247,255,0.7)';
       ctx.lineWidth = 2;
@@ -452,8 +540,61 @@
     ctx.fillRect(x + w * 0.58, y + h * 0.3, 4, 3);
   }
 
+  /* Skinned enemy. The windup tell and the hit flash stay in code on top of
+   * the sprite: they are rules the player has to read, not decoration, and
+   * they should look the same whoever drew the art. */
+  function drawEnemySkin(ctx, e, time, world, slot, m) {
+    var bob = Math.sin(time * 6 + e.phase) * (e.type === 'shooter' ? 0.8 : 1.6);
+    var box = { x: e.x, y: e.y + bob, w: e.w, h: e.h };
+    var rows = m.rows || {}, counts = m.counts || {};
+    var row = 0, col = 0;
+    if (e.type === 'shooter' && e.state === 'windup' && rows.windup != null) {
+      row = rows.windup;
+      col = Math.floor(time * 10) % (counts.windup || 1);
+    } else {
+      var key = rows.walk != null ? 'walk' : 'idle';
+      row = rows[key] || 0;
+      var n = counts[key] || 1;
+      // step the walk cycle off distance travelled, not wall time
+      col = Math.floor(Math.abs(e.x) * 0.06) % n;
+    }
+    Skin.drawFrame(ctx, slot, box, row, col, e.dir < 0);
+
+    if (e.type === 'shooter') drawShooterTell(ctx, e, bob);
+    if (e.flash > 0) {
+      ctx.globalAlpha = e.flash * 0.7;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(e.x - 2, e.y - 2 + bob, e.w + 4, e.h + 4);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /* The 0.5s tell: a ring that closes, a line to the locked point, and a
+   * marker where the shot will land. Drawn for both skinned and primitive
+   * shooters so the read never changes. */
+  function drawShooterTell(ctx, e, bob) {
+    var wind = e.state === 'windup' ? 1 - e.timer / C.SHOOTER_WINDUP : 0;
+    if (wind <= 0) return;
+    var mx = e.cx() + e.dir * 16, my = e.cy() - 4 + bob;
+    ctx.strokeStyle = 'rgba(255,84,112,' + (0.35 + wind * 0.6).toFixed(2) + ')';
+    ctx.lineWidth = 2 + wind * 2;
+    ctx.beginPath();
+    ctx.arc(mx, my, 20 * (1 - wind) + 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 0.25 + wind * 0.45;
+    ctx.beginPath();
+    ctx.moveTo(mx, my);
+    ctx.lineTo(e.aimX, e.aimY);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(255,84,112,0.8)';
+    ctx.fillRect(e.aimX - 5, e.aimY - 5, 10, 10);
+  }
+
   function drawEnemy(ctx, e, time, world) {
     if (e.stuck) { drawCocoon(ctx, e, time); return; }
+    var slot = 'enemy.' + e.type;
+    if (Skin.has(slot)) { drawEnemySkin(ctx, e, time, world, slot, Skin.meta(slot)); return; }
     var x = e.x, y = e.y, w = e.w, h = e.h;
     var bob = Math.sin(time * 6 + e.phase) * (e.type === 'shooter' ? 0.8 : 1.6);
 
@@ -609,7 +750,57 @@
     ctx.lineCap = 'butt';
   }
 
+  /* Which row and frame of the body sheet the current state wants. The state
+   * machine is the same one the primitive figure reads, so a skinned player
+   * animates off exactly the same signals. */
+  function playerCell(p, m) {
+    var rows = m.rows || {}, counts = m.counts || {};
+    function cell(k, i) { return { row: rows[k] || 0, col: Math.min(i, (counts[k] || 1) - 1) }; }
+    if (p.sliding) return cell('slide', 0);
+    if (p.swinging()) return cell('swing', p.vx >= 0 ? 0 : 1);
+    if (!p.grounded) return cell('air', p.vy < 0 ? 0 : 1);
+    if (Math.abs(p.vx) > 20) {
+      var n = counts.run || 1;
+      // runPhase advances with speed and cycles every 2*PI
+      return cell('run', Math.floor((p.runPhase / (Math.PI * 2)) * n) % n);
+    }
+    return cell('idle', 0);
+  }
+
+  function drawPlayerSkin(ctx, p, time, m) {
+    var cx = p.cx(), cy = p.cy();
+    var rot = M.clamp(p.lean * 0.55, -0.8, 0.8);
+    var flick = p.invuln > 0 && Math.floor(time * 22) % 2 === 0;
+    var c = playerCell(p, m);
+
+    ctx.save();
+    // rotate and squash about the body centre, exactly as the primitive does,
+    // then hand the sprite a box in local space
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+    var sq = 1 + p.landImpact * 0.35;
+    ctx.scale(1 + p.landImpact * 0.3, 1 / sq);
+    ctx.globalAlpha = flick ? 0.45 : 1;
+
+    var box = { x: -p.w * 0.5, y: -p.h * 0.5, w: p.w, h: p.h };
+    Skin.drawFrame(ctx, 'player.body', box, c.row, c.col, p.facing < 0);
+
+    /* The lead arm points down the web line. It is a big part of reading
+     * where your rope is going, so it is rotated separately rather than
+     * baked into the sheet. */
+    if (Skin.has('player.arm')) {
+      var a = p.armAim - rot;
+      Skin.drawPivot(ctx, 'player.arm', 0, -p.h * 0.18, a, 1,
+        Math.cos(a) < 0);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
   function drawPlayer(ctx, p, time) {
+    var pm = Skin.enabled && Skin.has('player.body') ? Skin.meta('player.body') : null;
+    if (pm) { drawPlayerSkin(ctx, p, time, pm); return; }
+
     var cx = p.cx(), cy = p.cy();
     var rot = M.clamp(p.lean * 0.55, -0.8, 0.8);
     var flick = p.invuln > 0 && Math.floor(time * 22) % 2 === 0;
@@ -671,59 +862,80 @@
 
   /* ---- HUD ------------------------------------------------------------- */
   function hudText(ctx, s, x, y, size, color, align, weight) {
-    ctx.font = (weight || 'bold') + ' ' + size + 'px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.font = (weight || 'bold') + ' ' + size + 'px ' + T.FONT;
     ctx.textAlign = align || 'left';
     ctx.fillStyle = color;
     ctx.fillText(s, x, y);
   }
 
-  /* The drainable slow-mo meter, for modes that have one. Sits under the clock
-   * because it is the one resource you spend mid-air and have to glance at. */
-  function drawSlowMeter(ctx, view, world) {
-    var w = 190, h = 10, x = view.w * 0.5 - w * 0.5, y = 64;
-    var c = M.clamp(world.slowCharge, 0, 1);
-    ctx.fillStyle = 'rgba(8,10,20,0.55)';
-    ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
-    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  /* ---- HUD -------------------------------------------------------------
+   * Four corners and one hero, rather than the five competing zones this
+   * used to have. At 1400px/s you get one glance, so each corner owns exactly
+   * one question:
+   *
+   *   top-left     where am I            top-centre   the clock, and my pace
+   *   bottom-left  how fast am I going   top-right    the thing this mode scores
+   *   right edge   how high am I         (towers only)
+   *
+   * The slow-mo meter is deliberately NOT up here. It is a panic resource
+   * spent mid-air, and your eyes are on the cursor when you need it, so it
+   * rides the reticle instead — see drawReticle. */
+
+  /* Pace, as position rather than arithmetic. Three bands for the three
+   * medals and a marker for right now: you learn whether you are still on
+   * gold without reading a number, which is the whole point mid-swing. */
+  function drawParBar(ctx, view, world, t) {
+    var par = world.level.par;
+    if (!par) return;
+    var w = 188, h = 5, x = Math.round(view.w * 0.5 - w * 0.5), y = 58;
+    var span = par[2] * 1.2;
+    function px(v) { return Math.min(w, v / span * w); }
+
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
     ctx.fillRect(x, y, w, h);
-    // locked out after running dry: red until the button is released
-    var col = world.slowLock ? P.hazard : (world.slowActive ? '#cfe6ff' : P.slow);
-    ctx.fillStyle = col;
-    ctx.fillRect(x, y, w * c, h);
-    if (world.slowActive) {
-      ctx.strokeStyle = '#cfe6ff';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(x - 1, y - 1, w + 2, h + 2);
+    var bands = [[0, px(par[0]), 'rgba(255,209,102,0.38)'],
+      [px(par[0]), px(par[1]), 'rgba(201,212,232,0.26)'],
+      [px(par[1]), px(par[2]), 'rgba(208,140,86,0.24)']];
+    for (var i = 0; i < 3; i++) {
+      ctx.fillStyle = bands[i][2];
+      ctx.fillRect(x + bands[i][0], y, bands[i][1] - bands[i][0], h);
     }
-    hudText(ctx, world.slowLock ? 'EMPTY — RELEASE' : 'SLO-MO  [RMB]',
-      view.w * 0.5, y + h + 15, 10,
-      world.slowLock ? P.hazard : 'rgba(233,237,255,0.45)', 'center', '');
+    // hairlines at each threshold, so the boundaries are countable
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(x + px(par[0]) - 1, y, 1, h);
+    ctx.fillRect(x + px(par[1]) - 1, y, 1, h);
+
+    var col = t <= par[0] ? P.gold : t <= par[1] ? P.silver : t <= par[2] ? P.bronze : P.hazard;
+    var mx = x + Math.min(w, px(t));
+    ctx.fillStyle = col;
+    ctx.fillRect(x, y, Math.min(w, px(t)), h);
+    ctx.fillStyle = P.ink;
+    ctx.fillRect(mx - 1, y - 3, 2, h + 6);
   }
 
   /* Altitude, for the towers. Two marks: where you are now, and the best this
-   * session — the high-water mark is the only thing a lost climb leaves you. */
+   * session — the high-water mark is the only thing a lost climb leaves you.
+   * Sits below the top-right corner so it never collides with it. */
   function drawAltimeter(ctx, view, world) {
-    var h = Math.min(300, view.h - 190), x = view.w - 40, y = 100;
+    var h = Math.min(320, view.h - 210), x = view.w - 34, y = 116;
     var now = M.clamp(world.height() / world.level.climb, 0, 1);
     var best = M.clamp(world.sessionHeight() / world.level.climb, 0, 1);
 
-    ctx.fillStyle = 'rgba(8,10,20,0.5)';
-    ctx.fillRect(x - 9, y - 8, 26, h + 16);
-    ctx.fillStyle = 'rgba(255,255,255,0.10)';
-    ctx.fillRect(x, y, 8, h);
-    ctx.fillStyle = 'rgba(6,214,160,0.30)';
-    ctx.fillRect(x, y + h * (1 - best), 8, h * best);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(x, y, 6, h);
+    ctx.fillStyle = 'rgba(6,214,160,0.28)';
+    ctx.fillRect(x, y + h * (1 - best), 6, h * best);
     ctx.fillStyle = P.body;
-    ctx.fillRect(x, y + h * (1 - now), 8, h * now);
+    ctx.fillRect(x, y + h * (1 - now), 6, h * now);
 
+    // the session high-water mark, called out because a lost climb keeps it
     ctx.fillStyle = P.goal;
-    ctx.fillRect(x - 5, y + h * (1 - best) - 1, 18, 2);
-    hudText(ctx, Math.round(world.sessionHeight()) + 'm', x + 13, y + h * (1 - best) - 7,
-      11, P.goal, 'right', '');
+    ctx.fillRect(x - 4, y + h * (1 - best) - 1, 14, 2);
+    hudText(ctx, Math.round(world.sessionHeight()) + 'm', x - 8, y + h * (1 - best) + 4,
+      10, P.goal, 'right', '');
 
-    hudText(ctx, 'ROOF', x + 13, y - 12, 10, 'rgba(233,237,255,0.5)', 'right', '');
-    hudText(ctx, Math.round(world.height()) + ' / ' + Math.round(world.level.climb),
-      x + 13, y + h + 18, 12, P.ink, 'right');
+    hudText(ctx, 'ROOF', x + 10, y - 8, 9, 'rgba(233,237,255,0.4)', 'right', '');
+    hudText(ctx, Math.round(world.height()) + 'm', x + 10, y + h + 16, 13, P.ink, 'right');
   }
 
   function drawHud(ctx, view, world, ui) {
@@ -753,57 +965,61 @@
       g.addColorStop(1, 'rgba(60,110,255,' + (0.30 * slow).toFixed(3) + ')');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, view.w, view.h);
-      hudText(ctx, 'SLOW', view.w * 0.5, view.h - 26, 13, 'rgba(180,210,255,' + (0.75 * slow).toFixed(2) + ')', 'center');
     }
     if (world.flash > 0) {
       ctx.fillStyle = 'rgba(255,84,112,' + (world.flash * 0.35).toFixed(3) + ')';
       ctx.fillRect(0, 0, view.w, view.h);
     }
 
-    // clock
-    ctx.fillStyle = 'rgba(8,10,20,0.55)';
-    ctx.fillRect(view.w * 0.5 - 96, 12, 192, 44);
-    hudText(ctx, M.fmtTime(t), view.w * 0.5, 44, 30, world.state === 'clear' ? P.goal : P.ink, 'center');
+    /* ---- top centre: the clock is the hero ----------------------------
+     * It is a speedrun game; nothing else on screen outranks the time. No
+     * panel behind it — a filled box at the top of a dark game just adds
+     * furniture. The digits carry a shadow instead so they hold over sky. */
+    var clockCol = world.state === 'clear' ? P.goal : P.ink;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.shadowBlur = 8;
+    hudText(ctx, M.fmtTime(t), view.w * 0.5, 46, 38, clockCol, 'center');
+    ctx.restore();
     if (world.penalty > 0) {
-      hudText(ctx, '+' + world.penalty.toFixed(0) + 's', view.w * 0.5 + 104, 40, 15, P.hazard, 'left');
+      hudText(ctx, '+' + world.penalty.toFixed(0) + 's', view.w * 0.5 + 104, 46, 14, P.hazard, 'left');
+    }
+    if (mode.scoring === 'medals') drawParBar(ctx, view, world, t);
+
+    /* ---- top left: where am I ------------------------------------------ */
+    hudText(ctx, world.level.name, 18, 32, 15, 'rgba(233,237,255,0.9)');
+    hudText(ctx, mode.name + ' · ' + world.levelNum + '/' + mode.levels.length +
+      '   BEST ' + (ui.best ? M.fmtTime(ui.best) : '--:--.--'),
+      18, 50, 11, 'rgba(233,237,255,0.42)', 'left', '');
+    if (world.stuckCount > 0) {
+      hudText(ctx, 'WEBBED ' + world.stuckCount, 18, 68, 11, 'rgba(233,237,255,0.42)', 'left', '');
     }
 
-    // par split, for modes scored on medals: how you are doing against gold
-    if (mode.scoring === 'medals' && world.level.par && world.state === 'playing') {
-      var g = world.level.par[0];
-      var left = g - t;
-      hudText(ctx, (left >= 0 ? 'GOLD +' : 'GOLD ') + left.toFixed(1) + 's',
-        view.w * 0.5 + 108, 40, 14, left >= 0 ? P.gold : P.hazard, 'left');
-    }
-
-    // level + best
-    hudText(ctx, mode.name + '  ' + world.levelNum + '/' + mode.levels.length +
-      '  ' + world.level.name, 16, 30, 14, 'rgba(233,237,255,0.85)');
-    hudText(ctx, 'BEST ' + (ui.best ? M.fmtTime(ui.best) : '--:--.--'), 16, 50, 13, 'rgba(233,237,255,0.5)');
-
-    // speed bar
-    var sp = M.clamp(p.speed() / 1300, 0, 1);
-    ctx.fillStyle = 'rgba(255,255,255,0.13)';
-    ctx.fillRect(view.w - 156, 22, 140, 9);
-    ctx.fillStyle = sp > 0.8 ? P.accent : P.body;
-    ctx.fillRect(view.w - 156, 22, 140 * sp, 9);
-    hudText(ctx, Math.round(p.speed()) + ' u/s', view.w - 16, 50, 13, 'rgba(233,237,255,0.6)', 'right');
-
-    // the right-hand readout is whatever this mode actually scores you on
+    /* ---- top right: whatever this mode actually scores you on ---------- */
     if (mode.scoring === 'grade') {
       var air = world.airRatio();
-      hudText(ctx, 'AIR ' + Math.round(air * 100) + '%  ' + world.grade(), view.w - 16, 70, 13,
-        air > 0.8 ? P.goal : 'rgba(233,237,255,0.55)', 'right');
+      hudText(ctx, world.grade(), view.w - 18, 38, 26,
+        air > 0.8 ? P.goal : 'rgba(233,237,255,0.75)', 'right');
+      hudText(ctx, 'AIR ' + Math.round(air * 100) + '%', view.w - 18, 56, 11,
+        'rgba(233,237,255,0.42)', 'right', '');
     } else if (mode.scoring === 'medals') {
-      hudText(ctx, 'DEATHS ' + world.deaths, view.w - 16, 70, 13,
-        world.deaths ? P.hazard : 'rgba(233,237,255,0.45)', 'right');
+      var dcol = world.deaths ? P.hazard : 'rgba(233,237,255,0.30)';
+      hudText(ctx, String(world.deaths), view.w - 18, 38, 26, dcol, 'right');
+      hudText(ctx, 'DEATHS', view.w - 18, 56, 11, 'rgba(233,237,255,0.42)', 'right', '');
     }
-    if (mode.slowmo === 'meter') drawSlowMeter(ctx, view, world);
     if (mode.scoring === 'altitude') drawAltimeter(ctx, view, world);
 
-    if (world.stuckCount > 0) {
-      hudText(ctx, 'WEBBED ' + world.stuckCount, 16, 70, 13, 'rgba(233,237,255,0.5)');
-    }
+    /* ---- bottom left: momentum ----------------------------------------
+     * Speed is ambient, not a number you act on, so it sits low and quiet
+     * and only lights up when you are actually flying. */
+    var sp = M.clamp(p.speed() / 1300, 0, 1);
+    var by = view.h - 30;
+    ctx.fillStyle = 'rgba(255,255,255,0.09)';
+    ctx.fillRect(18, by, 120, 4);
+    ctx.fillStyle = sp > 0.82 ? P.accent : P.body;
+    ctx.fillRect(18, by, 120 * sp, 4);
+    hudText(ctx, Math.round(p.speed()) + ' u/s', 18, by - 8, 11,
+      sp > 0.82 ? P.accent : 'rgba(233,237,255,0.42)', 'left', '');
 
     // death curtain: brief, and it says why
     if (world.state === 'dead') {
@@ -811,19 +1027,22 @@
       ctx.fillStyle = 'rgba(120,10,26,' + (0.35 * k).toFixed(3) + ')';
       ctx.fillRect(0, 0, view.w, view.h);
       hudText(ctx, 'DEAD', view.w * 0.5, view.h * 0.5 - 6, 46, P.hazard, 'center');
-      hudText(ctx, 'RESTARTING', view.w * 0.5, view.h * 0.5 + 24, 13,
+      hudText(ctx, 'RESTARTING', view.w * 0.5, view.h * 0.5 + 24, 12,
         'rgba(255,180,195,0.8)', 'center', '');
     }
 
-    // opening hint, fades out
+    /* ---- bottom centre: one line, never two ---------------------------
+     * This used to stack a level hint, a SLOW label and a control legend in
+     * the same 40px, and the last two overlapped. Now it is one slot: the
+     * hint while it is still useful, the controls once it has faded. */
     if (world.runTime < 6 && world.state === 'playing') {
-      var a = M.clamp((6 - world.runTime) / 2, 0, 1) * 0.8;
-      hudText(ctx, world.level.hint, view.w * 0.5, view.h - 54, 14,
-        'rgba(233,237,255,' + a.toFixed(2) + ')', 'center', '');
+      var a = M.clamp((6 - world.runTime) / 2, 0, 1);
+      hudText(ctx, world.level.hint, view.w * 0.5, view.h - 22, 13,
+        'rgba(233,237,255,' + (a * 0.85).toFixed(2) + ')', 'center', '');
+    } else {
+      hudText(ctx, 'R restart   ESC menu   M ' + (T.Audio.isMuted() ? 'unmute' : 'mute'),
+        view.w * 0.5, view.h - 22, 11, 'rgba(233,237,255,0.26)', 'center', '');
     }
-    hudText(ctx, 'R restart   ESC menu   M ' + (T.Audio.isMuted() ? 'unmute' : 'mute') +
-      (mode.wallJump ? '   press into a wall to slide, JUMP to kick' : ''),
-      view.w * 0.5, view.h - 14, 11, 'rgba(233,237,255,0.32)', 'center', '');
   }
 
   /* ---- crosshair ------------------------------------------------------- */
@@ -868,6 +1087,37 @@
     ctx.stroke();
     ctx.fillStyle = col;
     ctx.fillRect(aim.wx - 1.5, aim.wy - 1.5, 3, 3);
+
+    /* Slow-mo charge, as a ring around the crosshair.
+     *
+     * It used to be a bar under the clock, which is the one place you are
+     * guaranteed NOT to be looking: this is a reflex resource you spend while
+     * falling, and in a free-aim game your eyes are locked to the cursor. Put
+     * the meter where the eyes already are and it needs no glance at all.
+     * Empty and locked out reads as a full red ring — unmissable, and it is
+     * the only time the reticle ever goes solid. */
+    if (world.mode.slowmo === 'meter') {
+      var ch = M.clamp(world.slowCharge, 0, 1);
+      var rr = r + 6;
+      if (world.slowLock) {
+        ctx.strokeStyle = 'rgba(255,84,112,0.9)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(aim.wx, aim.wy, rr, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (ch < 0.999 || world.slowActive) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(aim.wx, aim.wy, rr, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = world.slowActive ? '#cfe6ff' : P.slow;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(aim.wx, aim.wy, rr, -Math.PI / 2, -Math.PI / 2 + ch * 6.283);
+        ctx.stroke();
+      }
+    }
     if (p.missCd > 0) {
       ctx.strokeStyle = 'rgba(255,84,112,0.8)';
       ctx.beginPath();
@@ -881,6 +1131,9 @@
     var level = world.level;
     buildLayers(level, level.id);
     var time = ui.time;
+    // pixel art must not be filtered; set once a frame since the flag is
+    // context state and the transform stack below does not preserve intent
+    ctx.imageSmoothingEnabled = !Skin.pixel;
 
     var alt = level.axis === 'y'
       ? M.clamp((level.baseY - cam.y) / level.climb, 0, 1) : 0;

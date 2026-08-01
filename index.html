@@ -5,20 +5,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>THWIP</title>
 <style>
+  /* ---- design tokens ---------------------------------------------------
+   * One meaning per colour. The old palette used yellow for anchors, launch
+   * pads, gold medals AND the generic UI accent, which meant "yellow" told
+   * you nothing. Medal colours are now reserved for medals; --live is the
+   * interactive/hover colour; --warn is danger and nothing else. */
   :root {
-    --ink: #e9edff;
-    --dim: rgba(233, 237, 255, 0.55);
-    --accent: #ffd166;
-    --teal: #17c3b2;
-    --pink: #ff5470;
-    --green: #06d6a0;
-    --panel: rgba(10, 12, 24, 0.82);
+    --ink:    #e9edff;
+    --dim:    rgba(233, 237, 255, 0.58);
+    --faint:  rgba(233, 237, 255, 0.30);
+    --hair:   rgba(233, 237, 255, 0.12);
+
+    --gold:   #ffd166;
+    --silver: #c9d4e8;
+    --bronze: #d08c56;
+
+    --live:   #17c3b2;   /* interactive: hover, focus, "you are here" */
+    --warn:   #ff5470;   /* danger, deaths, personal bests */
+    --ok:     #06d6a0;   /* cleared, summit, goal */
+
+    --bg:     #06070f;
+    --panel:  rgba(10, 12, 24, 0.82);
+    --panel2: rgba(23, 26, 48, 0.92);
+
+    /* type scale — integer px so a pixel face stays on its grid */
+    --t-micro: 10px; --t-small: 12px; --t-body: 14px;
+    --t-lead: 18px;  --t-head: 26px;  --t-display: 40px;
   }
   * { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0; height: 100%; overflow: hidden;
-    background: #06070f; color: var(--ink);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--bg); color: var(--ink);
+    /* Specified face: Departure Mono (SIL OFL). Falls back to the system
+     * monospace, so the layout is identical with or without it installed.
+     * skin.js overrides --font when assets/manifest.js names a typeface. */
+    font-family: var(--font, "Departure Mono", "Silkscreen", ui-monospace,
+                  SFMono-Regular, Menlo, Consolas, monospace);
+    /* every number in this UI is either a clock or a count, and a clock that
+     * changes width as its digits change is unreadable at a glance */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
   }
   #game { display: block; width: 100vw; height: 100vh; cursor: none; }
   #game.uiMode { cursor: default; }
@@ -30,75 +56,169 @@
     backdrop-filter: blur(2px);
   }
   .screen.on { display: flex; }
-  .panel { width: min(880px, 92vw); max-height: 92vh; overflow: auto; padding: 28px 32px; }
+  .panel { width: min(920px, 94vw); max-height: 94vh; overflow: auto; padding: 26px 30px; }
+  .panel::-webkit-scrollbar { width: 8px; }
+  .panel::-webkit-scrollbar-thumb { background: var(--hair); }
 
+  /* ---- wordmark ---------------------------------------------------------
+   * Discrete sizes rather than clamp(): a pixel face rendered at fractional
+   * sizes goes soft, and the chromatic offset only lands on whole pixels. */
   h1 {
-    margin: 0; font-size: clamp(48px, 11vw, 104px); letter-spacing: 0.14em;
-    line-height: 0.95; color: var(--ink);
-    text-shadow: 4px 4px 0 var(--pink), 8px 8px 0 rgba(23, 195, 178, 0.55);
+    margin: 0; font-size: 72px; letter-spacing: 0.16em; line-height: 0.95;
+    text-shadow: 3px 3px 0 var(--warn), 6px 6px 0 rgba(23, 195, 178, 0.55);
   }
-  .tag { margin: 10px 0 22px; color: var(--dim); font-size: 14px; letter-spacing: 0.18em; }
+  @media (max-width: 620px) { h1 { font-size: 44px; } }
+  .tag {
+    margin: 12px 0 26px; color: var(--dim);
+    font-size: var(--t-small); letter-spacing: 0.26em;
+  }
 
-  .levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  /* ---- mode select ------------------------------------------------------ */
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(258px, 1fr)); gap: 14px; }
+  .mode {
+    position: relative; padding: 22px 20px 18px; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  /* a 3px accent rail is a faster mode ID than reading the title */
+  .mode::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--accent, var(--faint));
+  }
+  .mode.classic { --accent: var(--silver); }
+  .mode.fast    { --accent: var(--live); }
+  .mode.big     { --accent: var(--warn); }
+  /* Fixed height, not auto: a tagline that wraps to two lines pushes its card
+   * title down and breaks the alignment across the row, which is the one
+   * thing this layout relies on. Departure Mono is wider than the system
+   * monospace it was measured against, so this is a real risk, not a theory. */
+  .mode .sub {
+    font-size: var(--t-micro); color: var(--accent); letter-spacing: 0.14em;
+    min-height: 14px; line-height: 14px;
+  }
+  .mode .t { font-size: var(--t-head); letter-spacing: 0.05em; margin: 8px 0 2px; }
+  .mode .d { font-size: var(--t-small); color: var(--dim); line-height: 1.6; margin: 12px 0 16px; flex: 1; }
+  /* the three rules that actually differ between modes, as chips */
+  .mode .facts { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 14px; }
+  .mode .fact {
+    font-size: var(--t-micro); letter-spacing: 0.1em; padding: 3px 7px;
+    border: 1px solid var(--hair); color: var(--dim); white-space: nowrap;
+  }
+  .mode .prog { font-size: var(--t-micro); color: var(--faint); letter-spacing: 0.14em; }
+  .mode .track { height: 3px; background: var(--hair); margin-top: 7px; }
+  .mode .fill { height: 100%; background: var(--accent); }
+
+  /* ---- level grid ------------------------------------------------------
+   * Sized so a five-map unlock block lands as one row of five rather than
+   * wrapping to 4 + 1, which reads as a mistake. auto-fit (not auto-fill)
+   * so the three-map modes stretch to fill instead of leaving dead tracks. */
+  #levelPanel { width: min(1120px, 95vw); }
+  .levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 9px; }
   .card {
-    background: var(--panel); border: 2px solid rgba(233, 237, 255, 0.14);
-    padding: 16px 18px; cursor: pointer; text-align: left;
-    color: inherit; font: inherit; transition: transform .08s, border-color .12s, background .12s;
+    background: var(--panel); border: 1px solid var(--hair);
+    padding: 11px 12px 10px; cursor: pointer; text-align: left;
+    color: inherit; font: inherit; display: flex; flex-direction: column; gap: 2px;
+    transition: transform .08s, border-color .12s, background .12s;
   }
   .card:hover, .card:focus-visible {
-    border-color: var(--accent); transform: translateY(-3px);
-    background: rgba(23, 26, 48, 0.9); outline: none;
+    border-color: var(--live); transform: translateY(-2px);
+    background: var(--panel2); outline: none;
   }
-  .card .n { font-size: 12px; color: var(--accent); letter-spacing: 0.2em; }
-  .card .t { font-size: 19px; margin: 6px 0 12px; }
-  .card .b { font-size: 13px; color: var(--dim); display: flex; justify-content: space-between; }
-  .card .b b { color: var(--ink); font-weight: 700; }
-  .grade { font-size: 22px; font-weight: 700; }
+  .card .top { display: flex; justify-content: space-between; align-items: center; }
+  .card .n { font-size: var(--t-micro); color: var(--faint); letter-spacing: 0.2em; }
+  .card .t { font-size: var(--t-small); letter-spacing: 0.04em; margin: 2px 0 7px; }
+  .card .b {
+    font-size: var(--t-micro); color: var(--dim);
+    display: flex; justify-content: space-between; gap: 6px;
+    border-top: 1px solid var(--hair); padding-top: 7px; margin-top: auto;
+  }
+  .card .b b { color: var(--ink); font-weight: 400; }
+  .card .b .goal { color: var(--faint); }
 
-  /* locked maps still show, so the run of the campaign is visible */
-  .card.locked { opacity: 0.34; cursor: not-allowed; }
-  .card.locked:hover { border-color: rgba(233,237,255,0.14); transform: none; background: var(--panel); }
+  /* medal as a chip, so it reads as a badge and not as more text */
+  .chip {
+    font-size: var(--t-micro); letter-spacing: 0.12em; padding: 2px 6px;
+    border: 1px solid currentColor;
+  }
+  .chip.gold { color: var(--gold); }
+  .chip.silver { color: var(--silver); }
+  .chip.bronze { color: var(--bronze); }
+  .chip.none { color: var(--faint); border-color: var(--hair); }
+  .chip.ok { color: var(--ok); }
+  .grade { font-size: var(--t-lead); }
 
-  /* mode select */
-  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
-  .mode { padding: 20px 22px; }
-  .mode .t { font-size: 26px; letter-spacing: 0.06em; margin: 8px 0 4px; }
-  .mode .sub { font-size: 11px; color: var(--accent); letter-spacing: 0.16em; }
-  .mode .d { font-size: 12.5px; color: var(--dim); line-height: 1.5; margin: 12px 0 14px; }
-  .mode .prog { font-size: 12px; color: var(--dim); display: flex; justify-content: space-between; }
-  .mode .prog b { color: var(--ink); }
-  .mode.big { border-color: rgba(255, 84, 112, 0.4); }
-  .mode.fast { border-color: rgba(23, 195, 178, 0.4); }
+  /* Locked maps stay visible so the shape of the campaign is legible, but
+   * they carry almost no weight and no per-card lock text — the block header
+   * states the rule once instead of repeating it five times. */
+  .card.locked { opacity: 0.26; cursor: not-allowed; }
+  .card.locked:hover { border-color: var(--hair); transform: none; background: var(--panel); }
 
-  .bar { display: flex; align-items: baseline; gap: 14px; margin-bottom: 16px; }
-  .bar h2 { margin: 0; font-size: 26px; letter-spacing: 0.14em; }
-  .bar .sub { font-size: 12px; color: var(--dim); letter-spacing: 0.12em; }
+  /* ---- block headers ---------------------------------------------------- */
+  .block { margin: 22px 0 9px; display: flex; align-items: baseline; gap: 12px; }
+  .block:first-of-type { margin-top: 4px; }
+  .block .bt { font-size: var(--t-small); letter-spacing: 0.2em; color: var(--dim); }
+  .block .rule { flex: 1; height: 1px; background: var(--hair); }
+  .block .bs { font-size: var(--t-micro); letter-spacing: 0.14em; color: var(--faint); }
+  .block.locked .bt { color: var(--faint); }
+  .block .bs.need { color: var(--live); }
+
+  /* ---- top bar ---------------------------------------------------------- */
+  .bar { display: flex; align-items: baseline; gap: 14px; margin: 2px 0 6px; }
+  .bar h2 { margin: 0; font-size: var(--t-head); letter-spacing: 0.14em; }
+  .bar .sub { font-size: var(--t-micro); color: var(--faint); letter-spacing: 0.16em; }
+  .bar .spacer { flex: 1; }
+  .bar .tally { font-size: var(--t-small); color: var(--dim); letter-spacing: 0.1em; }
   .back {
-    background: none; border: 0; color: var(--dim); font: inherit; font-size: 12px;
-    cursor: pointer; padding: 4px 0; letter-spacing: 0.12em;
+    background: none; border: 0; color: var(--faint); font: inherit;
+    font-size: var(--t-micro); cursor: pointer; padding: 2px 0 10px; letter-spacing: 0.18em;
   }
-  .back:hover { color: var(--ink); }
-  .medal { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+  .back:hover { color: var(--live); }
 
-  .keys { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: var(--dim); }
-  .keys b { color: var(--ink); background: rgba(255,255,255,0.08); padding: 2px 7px; border-radius: 3px; }
+  /* ---- key legend ------------------------------------------------------- */
+  .keys {
+    margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--hair);
+    display: flex; flex-wrap: wrap; gap: 7px 18px;
+    font-size: var(--t-micro); color: var(--faint); letter-spacing: 0.08em;
+  }
+  .keys b {
+    color: var(--dim); background: rgba(255,255,255,0.06);
+    border: 1px solid var(--hair); padding: 2px 6px; font-weight: 400; margin-right: 3px;
+  }
 
-  #results .panel { width: min(560px, 92vw); text-align: center; }
-  #results h2 { font-size: 34px; letter-spacing: 0.16em; margin: 0 0 6px; }
-  .bigtime { font-size: 62px; font-weight: 700; letter-spacing: 0.04em; margin: 4px 0; }
-  .rows { margin: 18px auto 22px; max-width: 380px; font-size: 14px; }
-  .row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid rgba(233,237,255,0.10); }
-  .row span:last-child { color: var(--ink); font-weight: 700; }
+  /* ---- results ---------------------------------------------------------- */
+  #results .panel { width: min(520px, 94vw); text-align: center; }
+  #results h2 { font-size: var(--t-lead); letter-spacing: 0.22em; margin: 0; color: var(--dim); }
+  .bigtime { font-size: 64px; letter-spacing: 0.02em; margin: 10px 0 2px; line-height: 1; }
+  .pb { color: var(--gold); font-size: var(--t-micro); letter-spacing: 0.26em; min-height: 14px; }
+  .delta { font-size: var(--t-small); letter-spacing: 0.1em; color: var(--dim); min-height: 16px; margin-top: 6px; }
+  .rows { margin: 20px auto 20px; max-width: 340px; font-size: var(--t-small); }
+  .row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--hair); }
+  .row span:last-child { color: var(--ink); }
   .row span:first-child { color: var(--dim); }
-  .pb { color: var(--accent); font-size: 15px; letter-spacing: 0.2em; margin-bottom: 8px; min-height: 18px; }
-  .btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+  /* ---- par bar ----------------------------------------------------------
+   * The medal thresholds laid out in space instead of spelled out in text.
+   * Used on the results screen; the canvas HUD draws the same thing live. */
+  .par { margin: 16px auto 4px; max-width: 340px; }
+  .par .track { position: relative; height: 6px; background: rgba(255,255,255,0.07); }
+  .par .seg { position: absolute; top: 0; bottom: 0; }
+  .par .seg.g { background: rgba(255,209,102,0.35); }
+  .par .seg.s { background: rgba(201,212,232,0.22); }
+  .par .seg.b { background: rgba(208,140,86,0.20); }
+  .par .you { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); }
+  .par .ticks { display: flex; justify-content: space-between; margin-top: 6px; font-size: var(--t-micro); color: var(--faint); letter-spacing: 0.1em; }
+
+  .btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
   .btn {
-    background: rgba(233,237,255,0.08); border: 2px solid rgba(233,237,255,0.2);
-    color: var(--ink); font: inherit; font-size: 13px; padding: 10px 18px; cursor: pointer;
+    background: rgba(233,237,255,0.05); border: 1px solid var(--hair);
+    color: var(--dim); font: inherit; font-size: var(--t-small);
+    padding: 11px 16px; cursor: pointer; letter-spacing: 0.1em;
+    transition: border-color .12s, color .12s, background .12s;
   }
-  .btn:hover { border-color: var(--accent); }
-  .btn.primary { border-color: var(--green); }
-  .hint { margin-top: 14px; font-size: 12px; color: var(--dim); }
+  .btn:hover { border-color: var(--live); color: var(--ink); background: rgba(23,195,178,0.08); }
+  .btn.primary { border-color: rgba(6,214,160,0.5); color: var(--ink); }
+  .btn.primary:hover { border-color: var(--ok); background: rgba(6,214,160,0.10); }
+  .btn kbd { color: var(--faint); font: inherit; margin-left: 7px; }
+  .hint { margin-top: 16px; font-size: var(--t-small); color: var(--faint); line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -124,12 +244,15 @@
   </div>
 
   <div class="panel" id="levelPanel" style="display:none">
-    <button class="back" id="btnBack">&lsaquo; ALL MODES &nbsp;[ESC]</button>
+    <button class="back" id="btnBack">&lsaquo; ALL MODES &nbsp;ESC</button>
     <div class="bar">
       <h2 id="modeTitle">MODE</h2>
       <span class="sub" id="modeSub"></span>
+      <span class="spacer"></span>
+      <span class="tally" id="modeTally"></span>
     </div>
-    <div class="levels" id="levelList"></div>
+    <div id="levelList"></div>
+    <div class="keys" id="modeKeys"></div>
     <div class="hint" id="modeHint"></div>
   </div>
 </div>
@@ -137,18 +260,24 @@
 <div id="results" class="screen">
   <div class="panel">
     <h2 id="resTitle">LEVEL CLEAR</h2>
-    <div class="pb" id="resPb"></div>
     <div class="bigtime" id="resTime">00:00.00</div>
+    <div class="pb" id="resPb"></div>
+    <div class="delta" id="resDelta"></div>
+    <div class="par" id="resPar"></div>
     <div class="rows" id="resRows"></div>
     <div class="btns">
-      <button class="btn primary" id="btnNext">NEXT LEVEL &nbsp;[ENTER]</button>
-      <button class="btn" id="btnRetry">RETRY &nbsp;[R]</button>
-      <button class="btn" id="btnMenu">MENU &nbsp;[ESC]</button>
+      <button class="btn primary" id="btnNext">NEXT MAP<kbd>ENTER</kbd></button>
+      <button class="btn" id="btnRetry">RETRY<kbd>R</kbd></button>
+      <button class="btn" id="btnMenu">MENU<kbd>ESC</kbd></button>
     </div>
   </div>
 </div>
 
 <script src="js/core.js"></script>
+<!-- Optional art layer. Both are safe to delete: without them the game draws
+     itself out of canvas primitives exactly as before. -->
+<script src="assets/manifest.js"></script>
+<script src="js/skin.js"></script>
 <script src="js/physics.js"></script>
 <script src="js/player.js"></script>
 <script src="js/enemies.js"></script>

@@ -36,7 +36,7 @@
     {
       id: 'fast',
       name: 'FAST PACED',
-      tagline: '20 MAPS  ·  DIE  ·  RETRY  ·  BEAT PAR',
+      tagline: '20 MAPS · DIE · RETRY',
       blurb: 'No free slow-mo — hold RMB to spend the meter. One mistake and ' +
         'you restart instantly. Maps 15-20 are the long ones.',
       fail: 'death',
@@ -56,7 +56,7 @@
     {
       id: 'big',
       name: 'EXTRA BIG',
-      tagline: '3 TOWERS  ·  NO CHECKPOINTS',
+      tagline: '3 TOWERS · NO CHECKPOINTS',
       blurb: 'Climb. Nothing kills you and nothing catches you — a missed ' +
         'thwip near the roof means the whole way back down.',
       fail: 'none',

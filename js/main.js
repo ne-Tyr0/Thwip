@@ -82,25 +82,51 @@
     return m === 'GOLD' ? P.gold : m === 'SILVER' ? P.silver : m === 'BRONZE' ? P.bronze : null;
   }
 
+  /* The three rules that actually differ between modes, as chips. A player
+   * choosing a mode wants to know what will kill them and what they get to
+   * spend — not to infer it from a paragraph. */
+  function modeFacts(m) {
+    var f = [];
+    f.push(m.fail === 'death' ? 'DEATH · INSTANT RETRY'
+      : m.fail === 'none' ? 'NOTHING KILLS YOU' : 'SOFT FAIL · +2s');
+    f.push(m.slowmo === 'meter' ? 'SLOW-MO METER' : 'FREE SLOW-MO');
+    if (m.wallJump) f.push('WALL KICK');
+    return f.map(function (t) { return '<span class="fact">' + t + '</span>'; }).join('');
+  }
+
   function buildModeList() {
     var host = document.getElementById('modeList');
     host.innerHTML = '';
     T.Modes.list.forEach(function (m) {
-      var done = clearedCount(m);
+      var done = clearedCount(m), total = m.levels.length;
       var b = document.createElement('button');
       b.className = 'card mode ' + m.id;
-      var prog = m.scoring === 'altitude'
-        ? 'TOPPED OUT <b>' + done + ' / ' + m.levels.length + '</b>'
-        : 'CLEARED <b>' + done + ' / ' + m.levels.length + '</b>';
       b.innerHTML = '<div class="sub">' + m.tagline + '</div>' +
         '<div class="t">' + m.name + '</div>' +
         '<div class="d">' + m.blurb + '</div>' +
-        '<div class="prog"><span>' + prog + '</span></div>';
+        '<div class="facts">' + modeFacts(m) + '</div>' +
+        '<div class="prog">' + (m.scoring === 'altitude' ? 'TOPPED OUT' : 'CLEARED') +
+        ' ' + done + ' / ' + total + '</div>' +
+        '<div class="track"><div class="fill" style="width:' +
+        Math.round(done / total * 100) + '%"></div></div>';
       b.addEventListener('click', function () {
         Audio.resume(); Audio.play('ui'); openMode(m.id);
       });
       host.appendChild(b);
     });
+  }
+
+  /* Controls differ by mode — the meter and the wall kick only exist in two
+   * of the three — so the legend is built from the mode rather than being a
+   * fixed list that is wrong two thirds of the time. */
+  function buildKeys(mode) {
+    var k = [['A D', 'move'], ['SPACE', 'jump'], ['LMB', 'thwip / release']];
+    if (mode.slowmo === 'meter') k.push(['RMB', 'slow-mo']);
+    if (mode.wallJump) k.push(['INTO WALL', 'slide, then JUMP to kick']);
+    k.push(['R', 'restart'], ['ESC', 'back'], ['M', 'mute']);
+    document.getElementById('modeKeys').innerHTML = k.map(function (p) {
+      return '<span><b>' + p[0] + '</b>' + p[1] + '</span>';
+    }).join('');
   }
 
   function openMode(id) {
@@ -111,6 +137,7 @@
     document.getElementById('modeTitle').textContent = curMode.name;
     document.getElementById('modeSub').textContent = curMode.tagline;
     document.getElementById('modeHint').textContent = curMode.blurb;
+    buildKeys(curMode);
     buildLevelList();
   }
 
@@ -121,49 +148,92 @@
     buildModeList();
   }
 
+  function levelCard(mode, id, idx, open) {
+    var meta = T.Levels.meta(id);
+    var best = getBest(mode.id, id);
+    var b = document.createElement('button');
+    b.className = 'card' + (open ? '' : ' locked');
+    var label = (mode.scoring === 'altitude' ? 'TOWER ' : 'MAP ') +
+      (idx + 1 < 10 ? '0' : '') + (idx + 1);
+
+    if (!open) {
+      // no per-card lock text: the block header says it once, above
+      b.innerHTML = '<div class="top"><span class="n">' + label + '</span></div>' +
+        '<div class="t">' + meta.name + '</div>';
+      return b;
+    }
+
+    var chip, foot;
+    if (mode.scoring === 'medals') {
+      var md = getMedal(mode.id, id);
+      chip = '<span class="chip ' + (md ? md.toLowerCase() : 'none') + '">' +
+        (md || 'NO MEDAL') + '</span>';
+      foot = '<span><b>' + (best ? M.fmtTime(best) : '--:--.--') + '</b></span>' +
+        '<span class="goal">GOLD ' + meta.par[0] + 's</span>';
+    } else if (mode.scoring === 'altitude') {
+      var alt = getAlt(id);
+      chip = '<span class="chip ' + (best ? 'ok' : 'none') + '">' +
+        (best ? 'SUMMIT' : alt ? Math.round(alt) + 'm' : 'UNCLIMBED') + '</span>';
+      foot = '<span><b>' + (best ? M.fmtTime(best) : '--:--.--') + '</b></span>' +
+        '<span class="goal">' + Math.round(T.Levels.build(id).climb / 1000) + 'k CLIMB</span>';
+    } else {
+      var g = getGrade(mode.id, id);
+      chip = '<span class="grade" style="color:' + (g ? P.goal : 'rgba(233,237,255,0.3)') +
+        '">' + (g || '–') + '</span>';
+      foot = '<span><b>' + (best ? M.fmtTime(best) : '--:--.--') + '</b></span>' +
+        '<span class="goal">BEST</span>';
+    }
+
+    b.innerHTML = '<div class="top"><span class="n">' + label + '</span>' + chip + '</div>' +
+      '<div class="t">' + meta.name + '</div>' +
+      '<div class="b">' + foot + '</div>';
+    b.addEventListener('click', function () {
+      Audio.resume(); Audio.play('ui'); startLevel(idx);
+    });
+    return b;
+  }
+
+  /* Twenty maps in one flat grid is a wall. Grouping by unlock block turns it
+   * into "here are your five", and lets the lock rule be stated once in the
+   * header instead of stamped on every locked card. */
   function buildLevelList() {
     var host = document.getElementById('levelList');
-    var mode = curMode;
+    var mode = curMode, done = clearedCount(mode);
     host.innerHTML = '';
-    mode.levels.forEach(function (id, idx) {
-      var meta = T.Levels.meta(id);
-      var best = getBest(mode.id, id);
-      var open = unlocked(mode, idx);
-      var b = document.createElement('button');
-      b.className = 'card' + (open ? '' : ' locked');
 
-      var right;
-      if (!open) {
-        right = '<span class="medal" style="color:rgba(233,237,255,0.4)">LOCKED</span>';
-      } else if (mode.scoring === 'medals') {
-        var md = getMedal(mode.id, id);
-        right = '<span class="medal" style="color:' +
-          (medalColor(md) || 'rgba(233,237,255,0.3)') + '">' + (md || '—') + '</span>';
-      } else if (mode.scoring === 'altitude') {
-        var alt = getAlt(id);
-        right = '<span class="medal" style="color:' + (best ? P.goal : P.body) + '">' +
-          (best ? 'TOPPED OUT' : alt ? Math.round(alt) + 'm' : '—') + '</span>';
-      } else {
-        var g = getGrade(mode.id, id);
-        right = '<span class="grade" style="color:' +
-          (g ? P.goal : 'rgba(233,237,255,0.3)') + '">' + (g || '-') + '</span>';
+    document.getElementById('modeTally').textContent = mode.scoring === 'altitude'
+      ? done + ' / ' + mode.levels.length + ' TOPPED OUT'
+      : done + ' / ' + mode.levels.length + ' CLEARED';
+
+    var size = mode.unlockBlock || mode.levels.length;
+    for (var start = 0; start < mode.levels.length; start += size) {
+      var end = Math.min(start + size, mode.levels.length);
+      var blockOpen = unlocked(mode, start);
+
+      if (mode.unlockBlock) {
+        /* A block opens once you have cleared as many maps as precede it, so
+         * the shortfall is per-block. Computing it once from `done` told every
+         * locked block the same number, which was right for the next one and
+         * wrong for all the rest. */
+        var short = start - done;
+        var h = document.createElement('div');
+        h.className = 'block' + (blockOpen ? '' : ' locked');
+        h.innerHTML = '<span class="bt">' + (start + 1) + '–' + end + '</span>' +
+          '<span class="rule"></span>' +
+          (blockOpen
+            ? '<span class="bs">OPEN</span>'
+            : '<span class="bs' + (short <= 5 ? ' need' : '') + '">CLEAR ' + short +
+              ' MORE TO UNLOCK</span>');
+        host.appendChild(h);
       }
 
-      var sub = mode.scoring === 'medals' && meta.par
-        ? 'GOLD ' + meta.par[0] + 's' : 'BEST';
-      b.innerHTML = '<div class="n">' +
-        (mode.scoring === 'altitude' ? 'TOWER ' : 'MAP ') + (idx + 1) + '</div>' +
-        '<div class="t">' + meta.name + '</div>' +
-        '<div class="b"><span>' + sub + ' <b>' +
-        (best ? M.fmtTime(best) : '--:--.--') + '</b></span>' + right + '</div>';
-
-      if (open) {
-        b.addEventListener('click', function () {
-          Audio.resume(); Audio.play('ui'); startLevel(idx);
-        });
+      var grid = document.createElement('div');
+      grid.className = 'levels';
+      for (var i = start; i < end; i++) {
+        grid.appendChild(levelCard(mode, mode.levels[i], i, unlocked(mode, i)));
       }
-      host.appendChild(b);
-    });
+      host.appendChild(grid);
+    }
   }
 
   function startLevel(i) {
@@ -221,6 +291,21 @@
       (color ? ' style="color:' + color + '"' : '') + '>' + value + '</span></div>';
   }
 
+  /* Medal thresholds laid out in space rather than spelled out in text. Where
+   * your marker lands against the three bands answers "how did I do" before
+   * you have read a single number. */
+  function parBar(par, t) {
+    var span = Math.max(par[2] * 1.25, t * 1.05);
+    function pc(v) { return Math.min(100, v / span * 100); }
+    return '<div class="track">' +
+      '<div class="seg g" style="left:0;width:' + pc(par[0]) + '%"></div>' +
+      '<div class="seg s" style="left:' + pc(par[0]) + '%;width:' + (pc(par[1]) - pc(par[0])) + '%"></div>' +
+      '<div class="seg b" style="left:' + pc(par[1]) + '%;width:' + (pc(par[2]) - pc(par[1])) + '%"></div>' +
+      '<div class="you" style="left:' + pc(t) + '%"></div>' +
+      '</div><div class="ticks"><span>GOLD ' + par[0] + 's</span><span>SILVER ' +
+      par[1] + 's</span><span>BRONZE ' + par[2] + 's</span></div>';
+  }
+
   function showResults() {
     var mode = world.mode, id = world.level.id;
     var t = world.displayTime();
@@ -243,16 +328,31 @@
     if (mode.scoring === 'altitude') saveAlt(id, world.level.climb);
 
     document.getElementById('resTitle').textContent =
-      (mode.scoring === 'altitude' ? 'SUMMIT — ' : '') + world.level.name;
+      (mode.scoring === 'altitude' ? 'SUMMIT · ' : '') + world.level.name;
     document.getElementById('resPb').textContent = isPb ? '★ NEW PERSONAL BEST' : '';
     document.getElementById('resTime').textContent = M.fmtTime(t);
-    document.getElementById('resTime').style.color = isPb ? P.accent : P.ink;
+    document.getElementById('resTime').style.color = medalColor(medal) || P.ink;
+
+    /* "0.4s off gold" is the single most motivating number on this screen —
+     * it turns a finished run into the next attempt. */
+    var dEl = document.getElementById('resDelta'), pEl = document.getElementById('resPar');
+    if (mode.scoring === 'medals' && world.level.par) {
+      var par = world.level.par;
+      var nextUp = t > par[2] ? par[2] : t > par[1] ? par[1] : t > par[0] ? par[0] : null;
+      var nextName = t > par[2] ? 'BRONZE' : t > par[1] ? 'SILVER' : t > par[0] ? 'GOLD' : null;
+      dEl.textContent = nextUp
+        ? (t - nextUp).toFixed(2) + 's OFF ' + nextName
+        : 'FASTEST MEDAL EARNED';
+      dEl.style.color = nextUp ? P.ink : P.gold;
+      pEl.innerHTML = parBar(par, t);
+    } else {
+      dEl.textContent = '';
+      pEl.innerHTML = '';
+    }
 
     var rows = row('BEST', M.fmtTime(isPb ? t : prev));
     if (mode.scoring === 'medals') {
-      var par = world.level.par;
       rows += row('MEDAL', medal || 'NONE', medalColor(medal) || P.ink);
-      rows += row('PAR (G / S / B)', par[0] + 's / ' + par[1] + 's / ' + par[2] + 's');
       rows += row('DEATHS', world.deaths, world.deaths ? P.hazard : P.ink);
     } else if (mode.scoring === 'altitude') {
       rows += row('HEIGHT CLIMBED', Math.round(world.level.climb) + ' px', P.goal);
@@ -270,7 +370,8 @@
     var next = document.getElementById('btnNext');
     var more = levelIndex < mode.levels.length - 1;
     next.style.display = more ? '' : 'none';
-    next.textContent = (mode.scoring === 'altitude' ? 'NEXT TOWER' : 'NEXT MAP') + '  [ENTER]';
+    next.innerHTML = (mode.scoring === 'altitude' ? 'NEXT TOWER' : 'NEXT MAP') +
+      '<kbd>ENTER</kbd>';
     show('results');
   }
 
