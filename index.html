@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>THWIP</title>
+<style>
+  :root {
+    --ink: #e9edff;
+    --dim: rgba(233, 237, 255, 0.55);
+    --accent: #ffd166;
+    --teal: #17c3b2;
+    --pink: #ff5470;
+    --green: #06d6a0;
+    --panel: rgba(10, 12, 24, 0.82);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #06070f; color: var(--ink);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  #game { display: block; width: 100vw; height: 100vh; cursor: none; }
+  #game.uiMode { cursor: default; }
+
+  .screen {
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    background: radial-gradient(circle at 50% 40%, rgba(23, 195, 178, 0.10), rgba(6, 7, 15, 0.93) 60%);
+    backdrop-filter: blur(2px);
+  }
+  .screen.on { display: flex; }
+  .panel { width: min(880px, 92vw); max-height: 92vh; overflow: auto; padding: 28px 32px; }
+
+  h1 {
+    margin: 0; font-size: clamp(48px, 11vw, 104px); letter-spacing: 0.14em;
+    line-height: 0.95; color: var(--ink);
+    text-shadow: 4px 4px 0 var(--pink), 8px 8px 0 rgba(23, 195, 178, 0.55);
+  }
+  .tag { margin: 10px 0 22px; color: var(--dim); font-size: 14px; letter-spacing: 0.18em; }
+
+  .levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel); border: 2px solid rgba(233, 237, 255, 0.14);
+    padding: 16px 18px; cursor: pointer; text-align: left;
+    color: inherit; font: inherit; transition: transform .08s, border-color .12s, background .12s;
+  }
+  .card:hover, .card:focus-visible {
+    border-color: var(--accent); transform: translateY(-3px);
+    background: rgba(23, 26, 48, 0.9); outline: none;
+  }
+  .card .n { font-size: 12px; color: var(--accent); letter-spacing: 0.2em; }
+  .card .t { font-size: 19px; margin: 6px 0 12px; }
+  .card .b { font-size: 13px; color: var(--dim); display: flex; justify-content: space-between; }
+  .card .b b { color: var(--ink); font-weight: 700; }
+  .grade { font-size: 22px; font-weight: 700; }
+
+  /* locked maps still show, so the run of the campaign is visible */
+  .card.locked { opacity: 0.34; cursor: not-allowed; }
+  .card.locked:hover { border-color: rgba(233,237,255,0.14); transform: none; background: var(--panel); }
+
+  /* mode select */
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+  .mode { padding: 20px 22px; }
+  .mode .t { font-size: 26px; letter-spacing: 0.06em; margin: 8px 0 4px; }
+  .mode .sub { font-size: 11px; color: var(--accent); letter-spacing: 0.16em; }
+  .mode .d { font-size: 12.5px; color: var(--dim); line-height: 1.5; margin: 12px 0 14px; }
+  .mode .prog { font-size: 12px; color: var(--dim); display: flex; justify-content: space-between; }
+  .mode .prog b { color: var(--ink); }
+  .mode.big { border-color: rgba(255, 84, 112, 0.4); }
+  .mode.fast { border-color: rgba(23, 195, 178, 0.4); }
+
+  .bar { display: flex; align-items: baseline; gap: 14px; margin-bottom: 16px; }
+  .bar h2 { margin: 0; font-size: 26px; letter-spacing: 0.14em; }
+  .bar .sub { font-size: 12px; color: var(--dim); letter-spacing: 0.12em; }
+  .back {
+    background: none; border: 0; color: var(--dim); font: inherit; font-size: 12px;
+    cursor: pointer; padding: 4px 0; letter-spacing: 0.12em;
+  }
+  .back:hover { color: var(--ink); }
+  .medal { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+
+  .keys { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: var(--dim); }
+  .keys b { color: var(--ink); background: rgba(255,255,255,0.08); padding: 2px 7px; border-radius: 3px; }
+
+  #results .panel { width: min(560px, 92vw); text-align: center; }
+  #results h2 { font-size: 34px; letter-spacing: 0.16em; margin: 0 0 6px; }
+  .bigtime { font-size: 62px; font-weight: 700; letter-spacing: 0.04em; margin: 4px 0; }
+  .rows { margin: 18px auto 22px; max-width: 380px; font-size: 14px; }
+  .row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid rgba(233,237,255,0.10); }
+  .row span:last-child { color: var(--ink); font-weight: 700; }
+  .row span:first-child { color: var(--dim); }
+  .pb { color: var(--accent); font-size: 15px; letter-spacing: 0.2em; margin-bottom: 8px; min-height: 18px; }
+  .btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    background: rgba(233,237,255,0.08); border: 2px solid rgba(233,237,255,0.2);
+    color: var(--ink); font: inherit; font-size: 13px; padding: 10px 18px; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { border-color: var(--green); }
+  .hint { margin-top: 14px; font-size: 12px; color: var(--dim); }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="title" class="screen on">
+  <div class="panel" id="modePanel">
+    <h1>THWIP</h1>
+    <div class="tag">NON-LETHAL WEB-SWINGING SPEEDRUN</div>
+    <div class="modes" id="modeList"></div>
+    <div class="keys">
+      <span><b>A</b> <b>D</b> move</span>
+      <span><b>SPACE</b> jump</span>
+      <span><b>LMB</b> thwip / release</span>
+      <span><b>RMB</b> slow-mo</span>
+      <span><b>R</b> restart</span>
+      <span><b>ESC</b> back</span>
+      <span><b>M</b> mute</span>
+    </div>
+    <div class="hint">Aim is free — no snapping. Jump first, then fire: a rope thrown from
+      the ground has nothing to swing under. Hold to swing, let go past the bottom of the
+      arc to launch. Web an enemy and they are stuck for the rest of the run.</div>
+  </div>
+
+  <div class="panel" id="levelPanel" style="display:none">
+    <button class="back" id="btnBack">&lsaquo; ALL MODES &nbsp;[ESC]</button>
+    <div class="bar">
+      <h2 id="modeTitle">MODE</h2>
+      <span class="sub" id="modeSub"></span>
+    </div>
+    <div class="levels" id="levelList"></div>
+    <div class="hint" id="modeHint"></div>
+  </div>
+</div>
+
+<div id="results" class="screen">
+  <div class="panel">
+    <h2 id="resTitle">LEVEL CLEAR</h2>
+    <div class="pb" id="resPb"></div>
+    <div class="bigtime" id="resTime">00:00.00</div>
+    <div class="rows" id="resRows"></div>
+    <div class="btns">
+      <button class="btn primary" id="btnNext">NEXT LEVEL &nbsp;[ENTER]</button>
+      <button class="btn" id="btnRetry">RETRY &nbsp;[R]</button>
+      <button class="btn" id="btnMenu">MENU &nbsp;[ESC]</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/core.js"></script>
+<script src="js/physics.js"></script>
+<script src="js/player.js"></script>
+<script src="js/enemies.js"></script>
+<script src="js/levels.js"></script>
+<script src="js/levels-fast.js"></script>
+<script src="js/levels-big.js"></script>
+<script src="js/modes.js"></script>
+<script src="js/world.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/render.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
