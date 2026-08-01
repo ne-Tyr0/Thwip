@@ -168,18 +168,27 @@
     var baseY = level.bounds.maxY;
 
     /* Skinned skyline: three tiled strips at the same parallax factors the
-     * procedural city uses, so the depth reads identically. */
+     * procedural city uses.
+     *
+     * Anchored by the BOTTOM of each strip, not the top. Hanging them off a
+     * top offset left them floating in mid-screen at whatever height the
+     * artwork happened to be, with sky visible underneath — a skyline has to
+     * meet the bottom of the frame or it reads as scenery pasted on the glass.
+     * The horizon rides the camera by the layer's parallax factor, and is
+     * clamped so the strip never lifts clear of the screen edge. */
     var slots = ['city.far', 'city.mid', 'city.near'];
     if (Skin.has(slots[0]) || Skin.has(slots[1]) || Skin.has(slots[2])) {
       for (var ci = 0; ci < 3; ci++) {
         if (!Skin.has(slots[ci])) continue;
         var sm = Skin.meta(slots[ci]);
         var f = layers[ci].f;
+        var sh = sm.h || 300;
         var sox = -cam.x * f + view.w * 0.5;
-        var soy = -cam.y * f + view.h * 0.5 + layers[ci].top * 0.5 + baseY * f * 0.35;
+        var horizon = view.h * 0.5 + (baseY - cam.y) * f;
+        var bottom = Math.max(horizon, view.h);
         ctx.save();
-        ctx.translate(sox, soy);
-        Skin.drawTiledX(ctx, slots[ci], -sox / 1 - 200, -sox + view.w + 200, 0, sm.h || 300);
+        ctx.translate(sox, bottom - sh);
+        Skin.drawTiledX(ctx, slots[ci], -sox - 300, -sox + view.w + 300, 0, sh);
         ctx.restore();
       }
       return;

@@ -156,33 +156,61 @@
     return true;
   };
 
-  /* Nine-slice, for level geometry. Solids are arbitrary sizes, so corners
-   * stay fixed, edges tile-stretch, and the middle fills. `slice` is
-   * [top, right, bottom, left] in source pixels. */
+  /* Draw a patch of the source into a destination rect, REPEATING it along
+   * whichever axes are flagged and stretching along the others. Partial tiles
+   * are clipped from the top-left of the patch, which is what a repeating
+   * texture wants. */
+  function region(ctx, im, sx, sy, sw, sh, dx, dy, dw, dh, tileX, tileY) {
+    if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+    var stepX = tileX ? sw : dw, stepY = tileY ? sh : dh;
+    for (var y = 0; y < dh; y += stepY) {
+      var ph = Math.min(stepY, dh - y);
+      for (var x = 0; x < dw; x += stepX) {
+        var pw = Math.min(stepX, dw - x);
+        ctx.drawImage(im, sx, sy, tileX ? pw : sw, tileY ? ph : sh,
+          dx + x, dy + y, pw, ph);
+      }
+    }
+  }
+
+  /* Nine-slice for level geometry: corners fixed, edges and middle REPEAT.
+   *
+   * They used to stretch. That is the conventional nine-slice behaviour and it
+   * is wrong for this game — solids here run from a 60px lip to a 30,000px
+   * tower face, so a 24px centre patch was being scaled 200x across a ground
+   * plate. Brickwork turns into smears. Repeating keeps the material at a
+   * constant scale no matter how big the rectangle is, which is the whole
+   * point of having a texture. Set `stretch: true` on a slot to opt out —
+   * useful for something like a banner that should scale as a unit.
+   *
+   * `slice` is [top, right, bottom, left] in source pixels; all-zero means the
+   * whole image is a plain repeating tile. */
   Skin.drawNine = function (ctx, name, r) {
     var im = imgs[name], m = meta[name];
     if (!im) return false;
     var s = m.slice || [0, 0, 0, 0];
+    var rep = !m.stretch;
     var t = s[0], ri = s[1], b = s[2], l = s[3];
     var iw = im.width, ih = im.height;
     var mw = Math.max(1, iw - l - ri), mh = Math.max(1, ih - t - b);
-    // never let the corners overlap on a thin rect
+    // never let opposite corners overlap on a rect thinner than their sum
     var kx = Math.min(1, r.w / (l + ri || 1)), ky = Math.min(1, r.h / (t + b || 1));
     var L = l * kx, R = ri * kx, TT = t * ky, B = b * ky;
     var cw = Math.max(0, r.w - L - R), ch = Math.max(0, r.h - TT - B);
-    function q(sx, sy, sw, sh, dx, dy, dw, dh) {
-      if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
-      ctx.drawImage(im, sx, sy, sw, sh, dx, dy, dw, dh);
-    }
-    q(0, 0, l, t, r.x, r.y, L, TT);
-    q(l, 0, mw, t, r.x + L, r.y, cw, TT);
-    q(iw - ri, 0, ri, t, r.x + L + cw, r.y, R, TT);
-    q(0, t, l, mh, r.x, r.y + TT, L, ch);
-    q(l, t, mw, mh, r.x + L, r.y + TT, cw, ch);
-    q(iw - ri, t, ri, mh, r.x + L + cw, r.y + TT, R, ch);
-    q(0, ih - b, l, b, r.x, r.y + TT + ch, L, B);
-    q(l, ih - b, mw, b, r.x + L, r.y + TT + ch, cw, B);
-    q(iw - ri, ih - b, ri, b, r.x + L + cw, r.y + TT + ch, R, B);
+    var x0 = r.x, x1 = r.x + L, x2 = r.x + L + cw;
+    var y0 = r.y, y1 = r.y + TT, y2 = r.y + TT + ch;
+
+    region(ctx, im, 0, 0, l, t, x0, y0, L, TT, false, false);
+    region(ctx, im, l, 0, mw, t, x1, y0, cw, TT, rep, false);
+    region(ctx, im, iw - ri, 0, ri, t, x2, y0, R, TT, false, false);
+
+    region(ctx, im, 0, t, l, mh, x0, y1, L, ch, false, rep);
+    region(ctx, im, l, t, mw, mh, x1, y1, cw, ch, rep, rep);
+    region(ctx, im, iw - ri, t, ri, mh, x2, y1, R, ch, false, rep);
+
+    region(ctx, im, 0, ih - b, l, b, x0, y2, L, B, false, false);
+    region(ctx, im, l, ih - b, mw, b, x1, y2, cw, B, rep, false);
+    region(ctx, im, iw - ri, ih - b, ri, b, x2, y2, R, B, false, false);
     return true;
   };
 
