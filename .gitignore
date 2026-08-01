@@ -1,0 +1,7 @@
+# frames written by tools/shotserver.js during development
+tools/shots/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
