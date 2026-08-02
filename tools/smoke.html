@@ -1,0 +1,156 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>smoke</title></head><body>
+<pre id="out">running</pre>
+<iframe id="f" src="../index.html" style="width:1000px;height:600px;border:1px solid #333"></iframe>
+<script>
+/* End-to-end screen sweep. Loads the REAL index.html in a frame and walks
+ * every path a player can take, with a global error trap. Exists because a
+ * ReferenceError thrown inside step() does not crash the page — rAF has
+ * already been queued — it just stops the frame drawing, so the game silently
+ * freezes and nothing shows up in the DOM. Only an error listener catches it. */
+var log = [], errs = [];
+function note(s) { log.push(s); }
+
+document.getElementById('f').onload = function () {
+  var w = document.getElementById('f').contentWindow;
+  w.addEventListener('error', function (e) { errs.push('ERROR ' + e.message); });
+  w.addEventListener('unhandledrejection', function (e) { errs.push('REJECT ' + e.reason); });
+
+  setTimeout(function () { run(w); }, 1200);
+};
+
+function step(w, n) { for (var i = 0; i < n; i++) w.THWIP.debug.step(1 / 60); }
+
+function guard(label, fn) {
+  var before = errs.length;
+  try { fn(); } catch (e) { errs.push('THREW in ' + label + ': ' + e.message); }
+  if (errs.length > before) note('FAIL  ' + label);
+  else note('ok    ' + label);
+}
+
+function run(w) {
+  var T = w.THWIP, d = T.debug, doc = w.document;
+
+  guard('title screen renders', function () { step(w, 10); });
+
+  guard('open settings', function () { doc.getElementById('btnSettings').click(); });
+  guard('toggle every setting option', function () {
+    var opts = doc.querySelectorAll('#setList .opt');
+    for (var i = 0; i < opts.length; i++) opts[i].click();
+  });
+  guard('every preset', function () {
+    var ps = doc.querySelectorAll('#presetRow .preset');
+    for (var i = 0; i < ps.length; i++) ps[i].click();
+  });
+  guard('settings back', function () { doc.getElementById('btnSetBack').click(); });
+
+  ['classic', 'fast', 'big'].forEach(function (m) {
+    guard('open mode ' + m, function () { d.open(m); });
+    guard('level grid ' + m, function () {
+      var cards = doc.querySelectorAll('#levelList .card');
+      if (!cards.length) throw new Error('no level cards');
+    });
+  });
+
+  // gameplay in each mode, including the three different scoring paths
+  [['classic', 'skyline'], ['fast', 'quickstep'], ['big', 'lobby']].forEach(function (j) {
+    guard('play ' + j[0] + '/' + j[1], function () { d.play(j[1], j[0]); step(w, 120); });
+  });
+
+  // THE ONE THAT FROZE: completing a level and drawing the results screen
+  [['classic', 'skyline'], ['fast', 'quickstep'], ['big', 'lobby']].forEach(function (j) {
+    guard('COMPLETE ' + j[0] + '/' + j[1], function () {
+      d.play(j[1], j[0]);
+      var wd = d.world;
+      wd.player.x = wd.level.goal.x + 4;
+      wd.player.y = wd.level.goal.y + 20;
+      step(w, 6);
+      if (d.scene !== 'results') throw new Error('did not reach results, scene=' + d.scene);
+      step(w, 30);                       // results screen must keep drawing
+    });
+  });
+
+  guard('next level from results', function () {
+    d.play('quickstep', 'fast');
+    var wd = d.world;
+    wd.player.x = wd.level.goal.x + 4; wd.player.y = wd.level.goal.y + 20;
+    step(w, 6);
+    doc.getElementById('btnNext').click();
+    step(w, 20);
+  });
+
+  guard('retry from results', function () {
+    var wd = d.world;
+    wd.player.x = wd.level.goal.x + 4; wd.player.y = wd.level.goal.y + 20;
+    step(w, 6);
+    doc.getElementById('btnRetry').click();
+    step(w, 20);
+  });
+
+  guard('menu from results', function () {
+    var wd = d.world;
+    wd.player.x = wd.level.goal.x + 4; wd.player.y = wd.level.goal.y + 20;
+    step(w, 6);
+    doc.getElementById('btnMenu').click();
+    step(w, 20);
+  });
+
+  guard('death and auto-restart', function () {
+    d.play('quickstep', 'fast');
+    var wd = d.world;
+    wd.player.x = wd.level.hazards[0].x + 40;
+    wd.player.y = wd.level.hazards[0].y - 10;
+    step(w, 4);
+    if (wd.state !== 'dead') throw new Error('did not die');
+    step(w, 40);
+    if (d.world.state !== 'playing') throw new Error('did not restart');
+  });
+
+  guard('webbed enemy / cocoon', function () {
+    d.play('gauntlet', 'classic');
+    var wd = d.world, e = wd.enemies.filter(function (x) { return x.webbable; })[0];
+    wd.player.x = e.cx() - 120; wd.player.y = e.cy();
+    wd.fire(e.cx(), e.cy());
+    step(w, 20);
+  });
+
+  guard('tower summit + altitude results', function () {
+    d.play('lobby', 'big');
+    var wd = d.world;
+    wd.bestY = -3000;
+    wd.player.x = wd.level.goal.x + 100; wd.player.y = wd.level.goal.y + 40;
+    step(w, 8);
+    step(w, 20);
+  });
+
+  guard('restart key mid-run', function () {
+    d.play('quickstep', 'fast'); step(w, 20);
+    var ev = new w.KeyboardEvent('keydown', { key: 'r' });
+    w.dispatchEvent(ev); step(w, 10);
+  });
+
+  guard('LOW preset in play', function () {
+    T.Settings.usePreset('LOW');
+    d.play('overpass', 'fast'); step(w, 60);
+    T.Settings.usePreset('HIGH');
+    step(w, 20);
+  });
+
+  guard('every fast map builds and draws', function () {
+    T.Modes.get('fast').levels.forEach(function (id) { d.play(id, 'fast'); step(w, 4); });
+  });
+
+  report();
+}
+
+/* Always publish, even if the sweep itself blew up part way through — a
+ * half-finished run with the failure named is far more useful than a page
+ * still saying "running". */
+function report() {
+  document.getElementById('out').textContent =
+    log.join('\n') + '\n\n' + (errs.length ? errs.length + ' PROBLEM(S):\n' + errs.join('\n')
+      : 'no errors across ' + log.length + ' checks');
+}
+window.addEventListener('error', function (e) { errs.push('HOST ' + e.message); report(); });
+setInterval(report, 500);
+</script>
+</body></html>

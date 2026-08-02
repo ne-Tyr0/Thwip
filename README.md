@@ -212,6 +212,23 @@ load and auto-selected a preset; it measured page load, webfont and twenty PNG
 decodes, so capable machines were routinely demoted. Guessing wrong silently is
 worse than not guessing.
 
+### Screen sweep
+
+```bash
+# serve the folder, then open tools/smoke.html
+```
+
+Loads the real `index.html` in a frame and walks every path a player can take —
+settings, all three modes, gameplay, death and auto-restart, level completion,
+next/retry/menu — with a global error trap.
+
+It exists because of a specific failure mode: an exception thrown inside
+`step()` does **not** crash the page. `requestAnimationFrame` has already been
+queued for the next frame, so the loop keeps running; it just never reaches
+`Render.draw`. The game silently freezes on the last painted frame with nothing
+visible in the DOM to explain it. Only an error listener catches that, which is
+exactly how a missing helper made every level completion freeze the game.
+
 ### Profiling
 
 ```bash

@@ -83,6 +83,10 @@
     var el = document.getElementById(id);
     if (el) el.textContent = s;
   }
+  function setHTML(id, s) {
+    var el = document.getElementById(id);
+    if (el) el.innerHTML = s;
+  }
 
   function show(name) {
     scene = name;
