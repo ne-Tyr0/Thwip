@@ -102,6 +102,8 @@ window.THWIP.SKIN = {
 
     'boost': { src: 'sprites/boost.png', slice: [6, 6, 6, 6] },
     'hazard': { src: 'sprites/hazard.png', frameW: 32, frameH: 32, box: [0, 0, 32, 32] },
-    'goal': { src: 'sprites/goal.png', slice: [10, 10, 10, 10] }
+    /* stretch, never tile: a door is one object. Sent through the repeating
+     * nine-slice path it came out as a row of doors. */
+    'goal': { src: 'sprites/goal.png', slice: [14, 14, 14, 14], stretch: true }
   }
 };

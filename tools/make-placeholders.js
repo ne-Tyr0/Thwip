@@ -344,13 +344,18 @@ function main() {
   hz.rect(0, 0, 1, 32, C.guide); hz.rect(31, 0, 1, 32, C.guide);
   done('hazard.png', hz);
 
-  var gl = new Img(40, 40);
-  gl.frame(0, 0, 40, 40, C.grid);
-  gl.rect(9, 5, 3, 30, C.goal);
-  for (var fy = 7; fy < 20; fy++) {
-    gl.rect(12, fy, Math.round(16 - Math.abs(fy - 13) * 0.9), 1, C.goal);
-  }
-  sliceGuides(gl, 40, 10);
+  /* A DOOR, not a flag. Drawn at the real doorway aspect (104 x 132) so the
+   * proportions you paint are the proportions in game, and stretched rather
+   * than tiled — a door is one object. */
+  var gl = new Img(52, 66);
+  var jamb = 6;
+  gl.rect(jamb, jamb, 52 - jamb * 2, 66 - jamb, [120, 240, 205, 150]);   // opening
+  gl.rect(0, 0, jamb, 66, C.goal);                                       // left jamb
+  gl.rect(52 - jamb, 0, jamb, 66, C.goal);                               // right jamb
+  gl.rect(0, 0, 52, jamb, C.goal);                                       // head
+  gl.rect(0, 0, 52, 3, [186, 252, 233, 235]);                            // lintel
+  gl.frame(0, 0, 52, 66, C.grid);
+  sliceGuides(gl, 52, 14);
   done('goal.png', gl);
 
   /* --- parallax skyline: same height, seamless left-to-right --- */

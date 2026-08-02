@@ -652,22 +652,12 @@
       'Everything, in the order you learned it.']
   ];
 
-  /* Every map in this pack is capped behind its goal. Arriving at 1400px/s it
-   * is far too easy to sail clean over the finish and off the end of the
-   * world; the backboard turns an overshoot into a slide down into the goal
-   * instead of a fall into nothing. */
+  /* The backboard behind each goal used to be added here. It now lives in
+   * levels.js build(), alongside the door sizing — it has to be placed after
+   * the door's final width is known, or a wider door grows straight through
+   * it, and it is a rule that should apply to every horizontal map rather
+   * than just this pack. */
   PACK.forEach(function (p) {
-    L.register({
-      id: p[0], name: p[1], par: p[3], hint: p[4],
-      build: function () {
-        var d = p[2]();
-        var cap = solid(d.goal.x + d.goal.w + 26, d.goal.y - 900,
-          70, 900 + d.goal.h + 400, 'wall');
-        // a ring the backboard would swallow is a ring that cannot be shot
-        d.anchors = d.anchors.filter(function (a) { return !T.Physics.overlap(a, cap); });
-        d.solids.push(cap);
-        return d;
-      }
-    });
+    L.register({ id: p[0], name: p[1], par: p[3], hint: p[4], build: p[2] });
   });
 })(typeof window !== 'undefined' ? window : globalThis);

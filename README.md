@@ -181,6 +181,23 @@ Personal bests are keyed by **mode and level**, because the same three layouts
 played under two rule sets are not comparable times. Bests from the original
 single-mode build are migrated to CLASSIC on first load.
 
+## The exit
+
+Every horizontal map ends in the same doorway: 104 x 132, sized in one place
+(`DOOR_W`/`DOOR_H` in `js/levels.js`) and applied in `build()` so all twenty
+maps agree. It is anchored by its bottom edge, so widening it never lifts it
+off the deck it was placed on.
+
+It was a 56px striped post with GOAL floating above it, which is a narrow thing
+to hit at 1400px/s and read as a flag rather than a way out. Skinned, it was
+also being pushed through the nine-slice pattern path — whose entire job is to
+repeat the middle — so a single flag tiled into a row of them. The goal slot is
+now `stretch: true`: a door is one object.
+
+The backboard that stops you sailing over the finish lives next to the door
+sizing for the same reason. It used to be added in the FAST pack, before the
+door had its final width, so a wider door would have grown straight through it.
+
 ## Settings and performance
 
 `O` from anywhere, or the button on the mode select. Options are grouped into
@@ -255,6 +272,15 @@ cost no longer depends on size; parallax layers and the starfield are baked to
 offscreen canvases once instead of being re-drawn rect-by-rect every frame;
 spike teeth are clipped to the camera and batched into a single path; and the
 sky and vignette gradients are cached rather than rebuilt per frame.
+
+**Everything is viewport-culled** — solids, hazards, anchors, pads, enemies,
+the goal, bullets, the motion trail and particles. Particles were the last
+holdout: up to 420 of them, each costing an alpha write, a style write and a
+fill, whether or not they were anywhere near the screen. A burst thrown at the
+far end of a map used to be painted every frame forever. Measured: 400
+off-screen particles went from **396 fills a frame to zero**. They are also
+batched by colour, which collapses most of the remaining style churn since a
+burst is one colour by construction.
 
 ## Custom art
 

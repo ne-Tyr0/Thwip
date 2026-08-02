@@ -79,24 +79,33 @@
         if (this.trail[i].t > 0.28) this.trail.splice(i, 1);
       }
     },
-    draw: function (ctx) {
-      var i, p, k;
+    /* Culled to the camera, and batched by colour.
+     *
+     * Particles were the last thing in the renderer drawing without a
+     * viewport test: up to 420 of them, each costing a globalAlpha write, a
+     * fillStyle write and a fillRect whether or not it was anywhere near the
+     * screen. A burst thrown at the far end of a 6,000px map was still being
+     * painted every frame. Sorting by colour also collapses most of the
+     * fillStyle churn, since a burst is one colour by construction. */
+    draw: function (ctx, vis) {
+      var i, p, k, lastCol = null;
       for (i = 0; i < this.trail.length; i++) {
         p = this.trail[i];
+        if (p.x < vis.x0 || p.x > vis.x1 || p.y < vis.y0 || p.y > vis.y1) continue;
         k = 1 - p.t / 0.28;
         ctx.globalAlpha = k * k * 0.4 * p.a;
         ctx.fillStyle = P.body;
         ctx.fillRect(p.x - 5, p.y - 8, 10, 16);
       }
+      lastCol = null;
       for (i = 0; i < this.list.length; i++) {
         p = this.list[i];
+        if (p.x < vis.x0 || p.x > vis.x1 || p.y < vis.y0 || p.y > vis.y1) continue;
         k = 1 - p.t / p.life;
         ctx.globalAlpha = Math.min(1, k * 1.4);
-        ctx.fillStyle = p.color;
+        if (p.color !== lastCol) { ctx.fillStyle = p.color; lastCol = p.color; }
         if (p.kind === 'streak') {
           ctx.fillRect(p.x, p.y, p.size * (1 + k * 3), p.size * 0.5);
-        } else if (p.kind === 'web') {
-          ctx.fillRect(p.x - p.size * 0.5, p.y - p.size * 0.5, p.size * k, p.size * k);
         } else {
           ctx.fillRect(p.x - p.size * 0.5, p.y - p.size * 0.5, p.size * k, p.size * k);
         }
@@ -556,31 +565,46 @@
     }
   }
 
+  /* The exit, as one wide doorway.
+   *
+   * This used to be a narrow striped post with GOAL floating over it, which
+   * read as a flag rather than a way out — and when skinned it was pushed
+   * through the nine-slice pattern path, whose whole job is to repeat the
+   * middle, so a single flag tiled into a row of them. A door is drawn as one
+   * unit: frame, lintel, and a lit opening you can see through. */
   function drawGoal(ctx, goal, time) {
     var x = goal.x, y = goal.y, w = goal.w, h = goal.h;
-    if (Skin.has('goal')) {
-      ctx.fillStyle = 'rgba(6,214,160,0.16)';
-      ctx.fillRect(x - 14, y - 26, w + 28, h + 26);
-      Skin.drawNine(ctx, 'goal', goal);
-      return;
+    var pulse = 0.5 + 0.5 * Math.sin(time * 2);
+
+    // the light spilling out of it, which is what you actually spot at speed
+    ctx.fillStyle = 'rgba(6,214,160,' + (0.10 + pulse * 0.07).toFixed(3) + ')';
+    ctx.fillRect(x - 26, y - 34, w + 52, h + 40);
+
+    if (Skin.has('goal')) { Skin.drawNine(ctx, 'goal', goal); return; }
+
+    var jamb = Math.max(6, Math.round(w * 0.11));
+    // opening
+    var g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, 'rgba(6,214,160,0.30)');
+    g.addColorStop(1, 'rgba(186,252,233,0.85)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x + jamb, y + jamb, w - jamb * 2, h - jamb);
+    // a couple of slow bands rising through the opening, so it reads as live
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    for (var i = 0; i < 2; i++) {
+      var yy = y + h - ((time * 34 + i * 64) % (h + 40));
+      if (yy > y + jamb && yy < y + h - 8) ctx.fillRect(x + jamb, yy, w - jamb * 2, 4);
     }
-    ctx.fillStyle = 'rgba(6,214,160,0.16)';
-    ctx.fillRect(x - 14, y - 26, w + 28, h + 26);
+    // frame
     ctx.fillStyle = P.goal;
-    ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    for (var i = 0; i < 4; i++) {
-      var yy = y + ((time * 60 + i * 26) % (h + 20)) - 10;
-      if (yy > y && yy < y + h - 6) ctx.fillRect(x, yy, w, 5);
-    }
-    ctx.strokeStyle = '#bafce9';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(x, y, w, h);
+    ctx.fillRect(x, y, jamb, h);
+    ctx.fillRect(x + w - jamb, y, jamb, h);
+    ctx.fillRect(x, y, w, jamb);
+    // lintel, so the top edge has some weight to it
     ctx.fillStyle = '#bafce9';
-    ctx.font = 'bold 15px ' + T.FONT;
-    ctx.textAlign = 'center';
-    ctx.fillText('GOAL', x + w * 0.5, y - 14 - Math.sin(time * 3) * 3);
-    ctx.textAlign = 'left';
+    ctx.fillRect(x - 8, y - 10, w + 16, 10);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(x - 8, y, w + 16, 3);
   }
 
   /* ---- enemies --------------------------------------------------------- */
@@ -752,9 +776,13 @@
     }
   }
 
-  function drawBullets(ctx, world, time) {
+  function drawBullets(ctx, world, time, vis) {
     for (var i = 0; i < world.bullets.length; i++) {
       var b = world.bullets[i];
+      // a shot fired across the map is still a live object; it just does not
+      // need painting until it is somewhere the player can see
+      if (b.x + b.r < vis.x0 || b.x - b.r > vis.x1 ||
+          b.y + b.r < vis.y0 || b.y - b.r > vis.y1) continue;
       ctx.fillStyle = 'rgba(255,84,112,0.25)';
       ctx.beginPath();
       ctx.arc(b.x, b.y, b.r + 6, 0, Math.PI * 2);
@@ -1261,9 +1289,9 @@
       if (!visible(vis, e.box())) continue;
       drawEnemy(ctx, e, time, world);
     }
-    drawBullets(ctx, world, time);
+    drawBullets(ctx, world, time, vis);
 
-    FX.draw(ctx);
+    FX.draw(ctx, vis);
     drawWeb(ctx, world.player, time);
     drawPlayer(ctx, world.player, time);
     if (ui.aim && world.state === 'playing') drawReticle(ctx, world, ui.aim, view);

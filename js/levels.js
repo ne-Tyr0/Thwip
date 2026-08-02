@@ -27,6 +27,10 @@
    * time a rope attached before the step swings past it. */
   var CLEAR = 400;
 
+  /* The exit door on every horizontal map. Sized to be unmistakable at speed
+   * and to be hit rather than threaded. */
+  var DOOR_W = 104, DOOR_H = 132;
+
   /* ---- the kit --------------------------------------------------------- */
 
   function solid(x, y, w, h, kind) {
@@ -175,6 +179,33 @@
     def.hazards = def.hazards || [];
     def.enemies = def.enemies || [];
     def.boosts = def.boosts || [];
+
+    /* One standard door for every side-scrolling map.
+     *
+     * The goal used to be a 56px post, which is a narrow thing to hit when
+     * you arrive at 1400px/s, and read as a flag rather than an exit. It is
+     * now a proper doorway: wider, taller, and anchored by its bottom edge so
+     * it still sits on the deck it was placed on. Towers keep their own goal,
+     * which is already a wide band across the summit.
+     *
+     * The backboard behind it lives here too, rather than in the FAST pack
+     * where it started. It is a universal rule — you must not be able to sail
+     * over the finish and off the end of the world — and keeping it next to
+     * the door means the two can never disagree about where the door ends. */
+    if (def.axis !== 'y') {
+      var bottom = def.goal.y + def.goal.h;
+      if (def.goal.w < DOOR_W) {
+        def.goal.w = DOOR_W;
+        def.goal.h = DOOR_H;
+        def.goal.y = bottom - DOOR_H;
+      }
+      var cap = solid(def.goal.x + def.goal.w + 24, def.goal.y - 820,
+        70, 820 + def.goal.h + 400, 'wall');
+      def.anchors = def.anchors.filter(function (a) {
+        return !T.Physics.overlap(a, cap);
+      });
+      def.solids.push(cap);
+    }
 
     var s = spanAll(def);
     def.bounds = {
