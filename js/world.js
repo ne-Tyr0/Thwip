@@ -192,6 +192,9 @@
       e = hit.target.ref;
       if (e.webbable) {
         // tagging an enemy never costs you your current swing
+        // where the shot came from, so the strand can be drawn flying out
+        // rather than the cocoon simply appearing
+        e.webFrom = { x: cx, y: cy };
         T.stickEnemy(e, this);
         e.flash = 1;
         this.stuckCount++;

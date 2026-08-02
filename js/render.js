@@ -608,8 +608,51 @@
   }
 
   /* ---- enemies --------------------------------------------------------- */
+  /* The web landing, over about a third of a second.
+   *
+   * The hit itself is still instant — this is presentation only, driven off
+   * `stuckAge`, which the enemy already tracks. It exists because an enemy
+   * that switches to "cocoon" between one frame and the next reads as a state
+   * change rather than as something you did to them. Now a strand snaps out
+   * from wherever you fired, and the wrapping closes over them from the
+   * middle outward. */
+  function cocoonPhase(e) {
+    var age = e.stuckAge;
+    return {
+      fly: M.clamp(age / 0.07, 0, 1),           // strand reaching the target
+      wrap: M.clamp((age - 0.05) / 0.20, 0, 1)  // silk closing over them
+    };
+  }
+
+  function drawWebStrand(ctx, e, fly) {
+    if (!e.webFrom || fly >= 1) return;
+    var tx = M.lerp(e.webFrom.x, e.cx(), fly);
+    var ty = M.lerp(e.webFrom.y, e.cy(), fly);
+    ctx.strokeStyle = P.web;
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(e.webFrom.x, e.webFrom.y);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+    ctx.fillStyle = P.cocoon;
+    ctx.beginPath();
+    ctx.arc(tx, ty, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   function drawCocoon(ctx, e, time) {
-    var x = e.x - 3, y = e.y - 3, w = e.w + 6, h = e.h + 6;
+    var ph = cocoonPhase(e);
+    // the silk closes from the middle out, so the body is still readable
+    // underneath for the first couple of frames
+    var gx = e.w * 0.5 * (1 - ph.wrap), gy = e.h * 0.5 * (1 - ph.wrap);
+    var x = e.x - 3 + gx, y = e.y - 3 + gy;
+    var w = e.w + 6 - gx * 2, h = e.h + 6 - gy * 2;
+
+    if (ph.wrap < 1) drawWebStrand(ctx, e, ph.fly);
+    if (ph.wrap <= 0) return;
+
     if (Skin.has('enemy.cocoon')) {
       if (e.stuckDir === 'air' && e.strand) {
         ctx.strokeStyle = 'rgba(242,247,255,0.7)';
@@ -646,10 +689,12 @@
       ctx.lineTo(x, y + h * (t - 0.18));
     }
     ctx.stroke();
-    // muffled eyes
-    ctx.fillStyle = 'rgba(40,50,70,0.55)';
-    ctx.fillRect(x + w * 0.28, y + h * 0.3, 4, 3);
-    ctx.fillRect(x + w * 0.58, y + h * 0.3, 4, 3);
+    // muffled eyes, once there is enough silk for them to peer out of
+    if (ph.wrap > 0.65) {
+      ctx.fillStyle = 'rgba(40,50,70,0.55)';
+      ctx.fillRect(x + w * 0.28, y + h * 0.3, 4, 3);
+      ctx.fillRect(x + w * 0.58, y + h * 0.3, 4, 3);
+    }
   }
 
   /* Skinned enemy. The windup tell and the hit flash stay in code on top of
@@ -704,7 +749,20 @@
   }
 
   function drawEnemy(ctx, e, time, world) {
-    if (e.stuck) { drawCocoon(ctx, e, time); return; }
+    /* While the silk is closing, the body stays visible underneath it. The
+     * cocoon used to replace the enemy on the same frame the shot landed,
+     * which made a hit read as a swap rather than as something happening to
+     * them. Their pose is frozen — `phase` stops advancing once stuck — so
+     * what you see is the last moment before they were wrapped. */
+    if (e.stuck) {
+      if (cocoonPhase(e).wrap < 1) drawEnemyBody(ctx, e, time, world);
+      drawCocoon(ctx, e, time);
+      return;
+    }
+    drawEnemyBody(ctx, e, time, world);
+  }
+
+  function drawEnemyBody(ctx, e, time, world) {
     var slot = 'enemy.' + e.type;
     if (Skin.has(slot)) { drawEnemySkin(ctx, e, time, world, slot, Skin.meta(slot)); return; }
     var x = e.x, y = e.y, w = e.w, h = e.h;

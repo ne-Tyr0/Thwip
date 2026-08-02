@@ -33,6 +33,7 @@
     this.stuckDir = 'down';
     this.stuckAge = 0;
     this.strand = null;
+    this.webFrom = null;      // where the shot was fired from, for the strand
     this.state = 'idle';
     this.timer = 0.4 + Math.random() * 0.6;
     this.aimX = 0; this.aimY = 0;
