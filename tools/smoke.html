@@ -15,8 +15,48 @@ document.getElementById('f').onload = function () {
   w.addEventListener('error', function (e) { errs.push('ERROR ' + e.message); });
   w.addEventListener('unhandledrejection', function (e) { errs.push('REJECT ' + e.reason); });
 
-  setTimeout(function () { run(w); }, 1200);
+  // the autopilot, so a level can be played properly rather than teleported
+  var s = w.document.createElement('script');
+  s.src = 'tools/bot.js';
+  s.onload = function () { setTimeout(function () { run(w); }, 900); };
+  s.onerror = function () { errs.push('could not load tools/bot.js'); run(w); };
+  w.document.body.appendChild(s);
 };
+
+/* Drive the bot's abstract input through the REAL devices — keyboard state,
+ * cursor position, click edges — exactly as harness.js does, so what gets
+ * exercised is the shipped input path, camera and renderer rather than a
+ * parallel copy of the simulation. */
+function applyInput(d, inp) {
+  var k = d.keys;
+  k.a = inp.left; k.d = inp.right;
+  k[' '] = inp.jumpHeld;
+  d.input.jumpPressed = inp.jumpPressed;
+  d.input.firePressed = inp.firePressed;
+  d.input.fireReleased = inp.fireReleased;
+  d.mouse.right = !!inp.slowHeld;
+  var cam = d.cam, v = d.view;
+  d.mouse.sx = (inp.aimX - cam.x + cam.shakeX) * cam.zoom + v.w * 0.5;
+  d.mouse.sy = (inp.aimY - cam.y + cam.shakeY) * cam.zoom + v.h * 0.5;
+}
+
+/* Play a level start to finish. Returns how it ended so the caller can insist
+ * on a real clear rather than accepting a timeout. */
+function playThrough(w, levelId, modeId, maxSeconds) {
+  var T = w.THWIP, d = T.debug;
+  if (!w.makeBot) throw new Error('bot unavailable');
+  d.play(levelId, modeId);
+  var Bot = w.makeBot(T);
+  var bot = new Bot(d.world, { webEnemies: T.Modes.get(modeId).fail === 'death' });
+  var deaths = 0, n = 0, cap = maxSeconds * 60;
+  while (d.world.state !== 'clear' && n++ < cap) {
+    applyInput(d, bot.input(1 / 60));
+    d.step(1 / 60);
+    if (d.world.deaths > deaths) { deaths = d.world.deaths; bot.rewind(); }
+  }
+  return { cleared: d.world.state === 'clear', seconds: +(n / 60).toFixed(1),
+    deaths: deaths, scene: d.scene };
+}
 
 function step(w, n) { for (var i = 0; i < n; i++) w.THWIP.debug.step(1 / 60); }
 
@@ -137,6 +177,29 @@ function run(w) {
 
   guard('every fast map builds and draws', function () {
     T.Modes.get('fast').levels.forEach(function (id) { d.play(id, 'fast'); step(w, 4); });
+  });
+
+  /* Full playthroughs. The COMPLETE checks above teleport onto the goal, which
+   * proves the results screen renders but never exercises an actual run — no
+   * swinging, no accumulated particles, no webbed enemies, no penalties, none
+   * of the state a real attempt builds up before it finishes. These play the
+   * level properly, through the real input path, and only pass on a genuine
+   * clear followed by a results screen that keeps drawing. */
+  [['classic', 'skyline', 60],
+    ['fast', 'quickstep', 60],
+    ['fast', 'kickflip', 90],      // chimneys: the most mechanically involved
+    ['big', 'lobby', 240]          // a real climb, thousands of frames
+  ].forEach(function (j) {
+    guard('PLAY FULL ' + j[0] + '/' + j[1], function () {
+      var r = playThrough(w, j[1], j[0], j[2]);
+      note('        ' + (r.cleared ? 'cleared in ' + r.seconds + 's' : 'TIMED OUT at ' + r.seconds + 's') +
+        ', deaths=' + r.deaths + ', scene=' + r.scene);
+      if (!r.cleared) throw new Error('never reached the goal');
+      if (r.scene !== 'results') throw new Error('cleared but no results screen');
+      step(w, 60);                  // results must keep drawing after a real run
+      doc.getElementById('btnNext').click();
+      step(w, 30);                  // and the next level must start cleanly
+    });
   });
 
   report();
