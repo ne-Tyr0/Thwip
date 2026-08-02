@@ -15,13 +15,15 @@ font:12px monospace}#game{display:block;width:1280px;height:720px}
 <script src="../js/settings.js"></script>
 <script src="../assets/manifest.js"></script>
 <!-- this page lives in tools/, so the manifest's relative base has to be
-     re-rooted or the skin silently fails to load and the bench measures the
-     primitive path instead of the one that ships -->
+     re-rooted or every image 404s and the bench silently measures something
+     other than what it was pointed at -->
 <script>
 if (window.THWIP && window.THWIP.SKIN) {
   window.THWIP.SKIN.base = '../assets/';
-  // ?noskin measures the pure-canvas path, which is what a player with no
-  // assets/ folder sees and a completely different set of hot spots
+  /* Two completely different sets of hot spots, so measure the one you mean:
+   *   bench.html          no art — what ships, and what a player sees
+   *   bench.html?mocks    every slot filled, via the manifest's own switch
+   * ?noskin is kept because it used to be the only way to get the first one. */
   if (location.search.indexOf('noskin') >= 0) window.THWIP.SKIN.sprites = {};
 }
 </script>

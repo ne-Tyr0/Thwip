@@ -1,24 +1,46 @@
 # Making art for THWIP
 
-Everything here is optional. Fill in one slot at a time; anything you have not
-supplied keeps drawing itself out of canvas primitives. Delete this whole
-folder and the game is exactly as it shipped.
+Everything here is optional, and every slot ships **switched off** — the game
+draws itself out of canvas primitives, which is how it is meant to look until
+you replace a piece of it. Fill in one slot at a time; anything still null
+keeps drawing the old way. Delete this whole folder and nothing changes.
+
+Two folders, and the difference matters:
+
+| | |
+|---|---|
+| `assets/mocks/` | labelled templates. Not art — a specification, generated. Nothing loads them by default. |
+| `assets/sprites/` | **your art**. Empty until you put something in it. |
 
 ```bash
 node tools/make-placeholders.js
 ```
 
-writes correctly-sized template PNGs into `assets/sprites/`, with the frame
-grid drawn and the **collision box outlined in magenta**. Paint over them,
-delete the magenta, and the alignment is guaranteed to be right.
+writes a correctly-sized template for every slot into `assets/mocks/`, with the
+frame grid drawn and the **collision box outlined in magenta**. Copy one into
+`assets/sprites/`, paint over it, delete the magenta, and the alignment is
+guaranteed to be right.
 
-To use one, set its `src` in `assets/manifest.js`:
+To use it, set that slot's `src` in `assets/manifest.js` — the path is already
+sitting in the comment beside it:
 
 ```js
 'player.body': { src: 'sprites/player_body.png', … }
 ```
 
 Reload. That is the whole workflow — there is no build step.
+
+## Seeing where the slots land
+
+```
+index.html?mocks
+```
+
+points every slot at its template in `assets/mocks/` for one page load, so you
+can play a level and watch which slot covers which surface — how a nine-slice
+inset behaves on a 30,000px tower face, how much room the player frame really
+has — before spending a day drawing. Nothing is written; drop the `?mocks` and
+it is back to the canvas art.
 
 ## The one alignment number
 

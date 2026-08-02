@@ -11,13 +11,15 @@
  * Colours are the intended palette rather than neutral grey, so the set also
  * previews how the pieces sit together before any of it is drawn properly.
  *
- * Nothing points at these until you fill in `src` in assets/manifest.js.
+ * They live in assets/mocks/, which nothing loads by default — copy one into
+ * assets/sprites/ and fill in its `src` in assets/manifest.js to use it, or
+ * open index.html?mocks to see the whole set in place at once.
  * No dependencies: PNG is written by hand via zlib. */
 'use strict';
 var fs = require('fs'), path = require('path'), zlib = require('zlib');
 var F = require('./pixfont.js');
 
-var OUT = path.join(__dirname, '..', 'assets', 'sprites');
+var OUT = path.join(__dirname, '..', 'assets', 'mocks');
 
 /* ---- PNG encoder -------------------------------------------------------- */
 var CRC = (function () {
@@ -394,7 +396,7 @@ function main() {
   /* --- contact sheet: every slot on one page --- */
   contactSheet();
 
-  console.log('wrote ' + made.length + ' mock-ups to assets/sprites/\n');
+  console.log('wrote ' + made.length + ' mock-ups to assets/mocks/\n');
   made.forEach(function (m) {
     console.log('  ' + m.file.padEnd(22) + String(m.w).padStart(4) + ' x ' +
       String(m.h).padEnd(5) + (m.bytes / 1024).toFixed(1) + ' KB');

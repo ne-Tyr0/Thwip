@@ -166,7 +166,9 @@ winds the clock up.
 
 ```
 index.html          canvas, mode select, level grid, results
-assets/             optional art — safe to delete entirely
+assets/manifest.js  the 20 art slots, all off by default; the font, which is on
+assets/sprites/     your art goes here — empty on purpose
+assets/mocks/       labelled templates for every slot; index.html?mocks wears them
 js/core.js          tuning constants, palette, math helpers
 js/settings.js      options, presets, and the resolved quality bag (T.Q)
 js/skin.js          optional art layer; every slot falls back to primitives
@@ -258,7 +260,7 @@ exactly how a missing helper made every level completion freeze the game.
 ### Profiling
 
 ```bash
-# open tools/bench.html in a browser; add ?noskin for the pure-canvas path
+# open tools/bench.html in a browser; add ?mocks to measure the art path
 ```
 
 It counts canvas operations per frame and reports the heaviest. Draw calls are
@@ -267,7 +269,9 @@ fails on call volume long before it fails on arithmetic.
 
 Measured that way, the renderer had one catastrophic bug and several ordinary
 ones. Nine-slice tiling issued one `drawImage` per tile, so a 620 x 17,000
-tower face cost ~4,600 calls per wall per frame:
+tower face cost ~4,600 calls per wall per frame. Those rows are the art path
+(`?mocks`), which is where the bug lived; the last row is the canvas path that
+ships:
 
 | scene | before | after |
 | --- | --- | --- |
@@ -294,10 +298,17 @@ burst is one colour by construction.
 ## Custom art
 
 All art is canvas primitives by default and always can be. `assets/manifest.js`
-declares optional sprites and a font; anything you do not supply keeps drawing
-itself, so you can replace the character alone and leave everything else. See
-`assets/README.md` for frame sizes and alignment, and run
-`node tools/make-placeholders.js` for correctly-sized templates to paint over.
+declares 20 optional sprite slots and a font; every slot ships as `src: null`,
+and anything you do not supply keeps drawing itself, so you can replace the
+character alone and leave everything else. Your art goes in `assets/sprites/`,
+which is empty on purpose. See `assets/README.md` for frame sizes and
+alignment, and run `node tools/make-placeholders.js` to regenerate the labelled
+templates in `assets/mocks/`.
+
+Opening `index.html?mocks` points every slot at those templates for one page
+load — a playable map of which slot covers which surface, without having drawn
+anything. The font is the one slot that is filled in, because the UI was
+designed around Departure Mono.
 
 The manifest is a `.js` file rather than `.json` deliberately: a page opened
 straight off disk cannot `fetch()` a sibling file, but it can always load a
