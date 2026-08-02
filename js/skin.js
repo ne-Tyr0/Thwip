@@ -159,7 +159,11 @@
   /* Draw a patch of the source into a destination rect, REPEATING it along
    * whichever axes are flagged and stretching along the others. Partial tiles
    * are clipped from the top-left of the patch, which is what a repeating
-   * texture wants. */
+   * texture wants.
+   *
+   * Only used for the clamped case now — see drawNine. Repeating by looping
+   * drawImage costs one call per tile, which is fine for a 200px lip and
+   * ruinous for a 17,000px tower face. */
   function region(ctx, im, sx, sy, sw, sh, dx, dy, dw, dh, tileX, tileY) {
     if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
     var stepX = tileX ? sw : dw, stepY = tileY ? sh : dh;
@@ -171,6 +175,49 @@
           dx + x, dy + y, pw, ph);
       }
     }
+  }
+
+  /* Cut a sheet into its nine regions once, as offscreen canvases, and build
+   * a repeat-pattern for each of the five that tile. Done lazily on first
+   * draw and cached on the manifest entry. */
+  function slicesOf(ctx, name) {
+    var m = meta[name], im = imgs[name];
+    if (m._sl) return m._sl;
+    var s = m.slice || [0, 0, 0, 0];
+    var t = s[0], ri = s[1], b = s[2], l = s[3];
+    var iw = im.width, ih = im.height;
+    var mw = Math.max(1, iw - l - ri), mh = Math.max(1, ih - t - b);
+    function cut(sx, sy, sw, sh) {
+      if (sw <= 0 || sh <= 0) return null;
+      var c = document.createElement('canvas');
+      c.width = sw; c.height = sh;
+      var cx = c.getContext('2d');
+      cx.imageSmoothingEnabled = !Skin.pixel;
+      cx.drawImage(im, sx, sy, sw, sh, 0, 0, sw, sh);
+      return c;
+    }
+    var sl = {
+      t: t, r: ri, b: b, l: l,
+      tl: cut(0, 0, l, t), tm: cut(l, 0, mw, t), tr: cut(iw - ri, 0, ri, t),
+      ml: cut(0, t, l, mh), mm: cut(l, t, mw, mh), mr: cut(iw - ri, t, ri, mh),
+      bl: cut(0, ih - b, l, b), bm: cut(l, ih - b, mw, b), br: cut(iw - ri, ih - b, ri, b)
+    };
+    ['tm', 'ml', 'mm', 'mr', 'bm'].forEach(function (k) {
+      if (sl[k]) { try { sl[k + 'P'] = ctx.createPattern(sl[k], 'repeat'); } catch (e) { } }
+    });
+    m._sl = sl;
+    return sl;
+  }
+
+  /* Fill a rect with a repeat-pattern, aligned to the rect's own origin.
+   * One canvas op no matter how large the rect is. */
+  function fillPat(ctx, p, dx, dy, dw, dh) {
+    if (!p || dw <= 0 || dh <= 0) return;
+    ctx.save();
+    ctx.translate(dx, dy);
+    ctx.fillStyle = p;
+    ctx.fillRect(0, 0, dw, dh);
+    ctx.restore();
   }
 
   /* Nine-slice for level geometry: corners fixed, edges and middle REPEAT.
@@ -189,28 +236,70 @@
     var im = imgs[name], m = meta[name];
     if (!im) return false;
     var s = m.slice || [0, 0, 0, 0];
-    var rep = !m.stretch;
     var t = s[0], ri = s[1], b = s[2], l = s[3];
     var iw = im.width, ih = im.height;
     var mw = Math.max(1, iw - l - ri), mh = Math.max(1, ih - t - b);
-    // never let opposite corners overlap on a rect thinner than their sum
     var kx = Math.min(1, r.w / (l + ri || 1)), ky = Math.min(1, r.h / (t + b || 1));
-    var L = l * kx, R = ri * kx, TT = t * ky, B = b * ky;
-    var cw = Math.max(0, r.w - L - R), ch = Math.max(0, r.h - TT - B);
-    var x0 = r.x, x1 = r.x + L, x2 = r.x + L + cw;
-    var y0 = r.y, y1 = r.y + TT, y2 = r.y + TT + ch;
 
-    region(ctx, im, 0, 0, l, t, x0, y0, L, TT, false, false);
-    region(ctx, im, l, 0, mw, t, x1, y0, cw, TT, rep, false);
-    region(ctx, im, iw - ri, 0, ri, t, x2, y0, R, TT, false, false);
+    /* Clamped (a rect thinner than its own insets, e.g. a 28px balcony) or
+     * explicitly asked to scale as a unit: fall back to the loop. Both cases
+     * are small rects, so the call count stays trivial. */
+    if (m.stretch || kx < 1 || ky < 1) {
+      var rep = !m.stretch;
+      var L0 = l * kx, R0 = ri * kx, T0 = t * ky, B0 = b * ky;
+      var cw0 = Math.max(0, r.w - L0 - R0), ch0 = Math.max(0, r.h - T0 - B0);
+      var a0 = r.x, a1 = r.x + L0, a2 = r.x + L0 + cw0;
+      var c0 = r.y, c1 = r.y + T0, c2 = r.y + T0 + ch0;
+      region(ctx, im, 0, 0, l, t, a0, c0, L0, T0, false, false);
+      region(ctx, im, l, 0, mw, t, a1, c0, cw0, T0, rep, false);
+      region(ctx, im, iw - ri, 0, ri, t, a2, c0, R0, T0, false, false);
+      region(ctx, im, 0, t, l, mh, a0, c1, L0, ch0, false, rep);
+      region(ctx, im, l, t, mw, mh, a1, c1, cw0, ch0, rep, rep);
+      region(ctx, im, iw - ri, t, ri, mh, a2, c1, R0, ch0, false, rep);
+      region(ctx, im, 0, ih - b, l, b, a0, c2, L0, B0, false, false);
+      region(ctx, im, l, ih - b, mw, b, a1, c2, cw0, B0, rep, false);
+      region(ctx, im, iw - ri, ih - b, ri, b, a2, c2, R0, B0, false, false);
+      return true;
+    }
 
-    region(ctx, im, 0, t, l, mh, x0, y1, L, ch, false, rep);
-    region(ctx, im, l, t, mw, mh, x1, y1, cw, ch, rep, rep);
-    region(ctx, im, iw - ri, t, ri, mh, x2, y1, R, ch, false, rep);
+    /* The normal path: nine canvas ops regardless of how big the rect is.
+     *
+     * This used to loop drawImage once per tile, which is O(area). A tower
+     * face is 620 x 17,000, so it was issuing ~4,600 calls per wall per
+     * frame — 9,400 for a corridor, before anything else drew. Repeat
+     * patterns push that work into the compositor and make the cost of a
+     * 30,000px wall identical to the cost of a doorstep. */
+    var sl = slicesOf(ctx, name);
+    var cw = Math.max(0, r.w - l - ri), ch = Math.max(0, r.h - t - b);
+    var x0 = r.x, x1 = r.x + l, x2 = r.x + l + cw;
+    var y0 = r.y, y1 = r.y + t, y2 = r.y + t + ch;
 
-    region(ctx, im, 0, ih - b, l, b, x0, y2, L, B, false, false);
-    region(ctx, im, l, ih - b, mw, b, x1, y2, cw, B, rep, false);
-    region(ctx, im, iw - ri, ih - b, ri, b, x2, y2, R, B, false, false);
+    if (sl.tl) ctx.drawImage(sl.tl, x0, y0);
+    if (sl.tr) ctx.drawImage(sl.tr, x2, y0);
+    if (sl.bl) ctx.drawImage(sl.bl, x0, y2);
+    if (sl.br) ctx.drawImage(sl.br, x2, y2);
+    fillPat(ctx, sl.tmP, x1, y0, cw, t);
+    fillPat(ctx, sl.bmP, x1, y2, cw, b);
+    fillPat(ctx, sl.mlP, x0, y1, l, ch);
+    fillPat(ctx, sl.mrP, x2, y1, ri, ch);
+    fillPat(ctx, sl.mmP, x1, y1, cw, ch);
+    return true;
+  };
+
+  /* Fill a rect by repeating a whole image, in one canvas op. Used for long
+   * runs of the same thing — spike beds especially, which can be 1,800px of
+   * identical teeth. */
+  Skin.fillTile = function (ctx, name, r) {
+    var im = imgs[name], m = meta[name];
+    if (!im) return false;
+    if (!m._pat) {
+      try { m._pat = ctx.createPattern(im, 'repeat'); } catch (e) { return false; }
+    }
+    ctx.save();
+    ctx.translate(r.x, r.y);
+    ctx.fillStyle = m._pat;
+    ctx.fillRect(0, 0, r.w, r.h);
+    ctx.restore();
     return true;
   };
 

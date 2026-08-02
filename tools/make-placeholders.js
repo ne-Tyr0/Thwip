@@ -339,8 +339,9 @@ function main() {
       hz.rect(sx + 4 - half, 20 - sy2, half * 2, 1, C.hazard);
     }
   }
+  // no label: spike beds tile via a pattern, so any text stamps itself
+  // across the whole bed in game
   hz.rect(0, 0, 1, 32, C.guide); hz.rect(31, 0, 1, 32, C.guide);
-  hz.text('TILES X', 2, 3, C.label, 1);
   done('hazard.png', hz);
 
   var gl = new Img(40, 40);

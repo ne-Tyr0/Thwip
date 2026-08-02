@@ -28,6 +28,7 @@ then visit `http://localhost:8000`. (Scripts are plain `<script>` tags, so the
 | Right mouse or `Shift` | Slow-mo, in modes that give you a meter |
 | `R` | Restart the level instantly |
 | `Esc` | Back a screen |
+| `O` | Settings |
 | `M` | Mute |
 
 Aim is free — the cursor is the shot, with no snapping or assisted targeting.
@@ -82,8 +83,8 @@ motion. Reaching the goal grades you on time spent airborne versus total run
 time (S ≥ 92%, A ≥ 80%, B ≥ 65%, C ≥ 45%, else D), so staying in the swing beats
 walking.
 
-1. **Skyline Warmup** — flat, one long ring line, gaps small enough that a pure
-   run-and-jump clear also exists.
+1. **Skyline Warmup** — flat, one long ring line, forgiving spacing. Every gap
+   is 320px against a 259px running jump, so none of them can be hopped.
 2. **Rivet District** — the ground breaks into islands and the route climbs two
    storeys; the ring line leads each step up.
 3. **Thwip Gauntlet** — terrain rolls up and down before the final climb, three
@@ -158,6 +159,7 @@ winds the clock up.
 index.html          canvas, mode select, level grid, results
 assets/             optional art — safe to delete entirely
 js/core.js          tuning constants, palette, math helpers
+js/settings.js      options, presets, and the resolved quality bag (T.Q)
 js/skin.js          optional art layer; every slot falls back to primitives
 js/physics.js       AABB sweeping, raycasts, the pendulum integrator
 js/player.js        movement, jumping, wall kicks, the taut/slack rope machine
@@ -178,6 +180,64 @@ tests drive the real simulation headlessly.
 Personal bests are keyed by **mode and level**, because the same three layouts
 played under two rule sets are not comparable times. Bests from the original
 single-mode build are migrated to CLASSIC on first load.
+
+## Settings and performance
+
+`O` from anywhere, or the button on the mode select. Options are grouped into
+DISPLAY / GRAPHICS / COMFORT, every row explains what it costs, and presets
+write real values so the preset and the individual options can never disagree.
+Touching any option moves you to CUSTOM.
+
+The three that matter most:
+
+- **Resolution scale** — the biggest lever by far. The backing store is
+  `width x height x dpr²`, so 50% is a quarter of the pixels. The CSS size
+  never changes; the game is rendered smaller and stretched up, with
+  `image-rendering: pixelated` so it stays crisp.
+- **Frame limit** — 30/45/60/120 or uncapped. A steady 30 reads as far smoother
+  than an unstable 55, and it stops laptops spinning up.
+- **FPS counter** — number, or number plus a 120-frame graph with a line at
+  16.7ms so a stutter that an averaged number hides is visible.
+
+Under COMFORT, **full-screen flashes** can be turned off for photosensitivity.
+Nothing you need is lost — the death wash goes, the word DEAD stays.
+
+Presets change visual quality only. They deliberately do **not** touch the
+frame limit — that is a preference about battery and fan noise, not a quality
+level, and a preset that quietly halves your framerate is indistinguishable
+from the game being slow.
+
+There is no startup benchmark. An earlier build timed twenty frames just after
+load and auto-selected a preset; it measured page load, webfont and twenty PNG
+decodes, so capable machines were routinely demoted. Guessing wrong silently is
+worse than not guessing.
+
+### Profiling
+
+```bash
+# open tools/bench.html in a browser; add ?noskin for the pure-canvas path
+```
+
+It counts canvas operations per frame and reports the heaviest. Draw calls are
+the right metric here because they are hardware-independent — a weak device
+fails on call volume long before it fails on arithmetic.
+
+Measured that way, the renderer had one catastrophic bug and several ordinary
+ones. Nine-slice tiling issued one `drawImage` per tile, so a 620 x 17,000
+tower face cost ~4,600 calls per wall per frame:
+
+| scene | before | after |
+| --- | --- | --- |
+| EXTRA BIG / midtown | **9,623** | **153** |
+| FAST / overpass | 751 | 156 |
+| CLASSIC / gauntlet | 668 | 89 |
+| FAST / quickstep (no art) | 1,253 | 216 |
+
+The fixes: nine-slices and long spike beds use cached repeat patterns, so their
+cost no longer depends on size; parallax layers and the starfield are baked to
+offscreen canvases once instead of being re-drawn rect-by-rect every frame;
+spike teeth are clipped to the camera and batched into a single path; and the
+sky and vignette gradients are cached rather than rebuilt per frame.
 
 ## Custom art
 

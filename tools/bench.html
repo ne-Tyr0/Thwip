@@ -1,0 +1,112 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>bench</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#06070f;color:#ddd;
+font:12px monospace}#game{display:block;width:1280px;height:720px}
+#out{position:fixed;left:0;top:0;background:#000c;padding:8px;white-space:pre}</style></head><body>
+<canvas id="game"></canvas>
+<div id="title" class="screen"><div class="panel" id="modePanel"><div id="modeList"></div></div>
+<div class="panel" id="levelPanel" style="display:none"><button id="btnBack"></button>
+<h2 id="modeTitle"></h2><span id="modeSub"></span><span id="modeTally"></span>
+<div id="levelList"></div><div id="modeKeys"></div><div id="modeHint"></div></div></div>
+<div id="results" class="screen"><div class="panel"><h2 id="resTitle"></h2><div id="resPb"></div>
+<div id="resTime"></div><div id="resDelta"></div><div id="resPar"></div><div id="resRows"></div>
+<button id="btnNext"></button><button id="btnRetry"></button><button id="btnMenu"></button></div></div>
+<pre id="out">running</pre>
+<script src="../js/core.js"></script>
+<script src="../js/settings.js"></script>
+<script src="../assets/manifest.js"></script>
+<!-- this page lives in tools/, so the manifest's relative base has to be
+     re-rooted or the skin silently fails to load and the bench measures the
+     primitive path instead of the one that ships -->
+<script>
+if (window.THWIP && window.THWIP.SKIN) {
+  window.THWIP.SKIN.base = '../assets/';
+  // ?noskin measures the pure-canvas path, which is what a player with no
+  // assets/ folder sees and a completely different set of hot spots
+  if (location.search.indexOf('noskin') >= 0) window.THWIP.SKIN.sprites = {};
+}
+</script>
+<script src="../js/skin.js"></script>
+<script src="../js/physics.js"></script>
+<script src="../js/player.js"></script>
+<script src="../js/enemies.js"></script>
+<script src="../js/levels.js"></script>
+<script src="../js/levels-fast.js"></script>
+<script src="../js/levels-big.js"></script>
+<script src="../js/modes.js"></script>
+<script src="../js/world.js"></script>
+<script src="../js/audio.js"></script>
+<script src="../js/render.js"></script>
+<script src="../js/main.js"></script>
+<script>
+/* Counts canvas operations and splits sim time from draw time. Draw-call
+ * counts are hardware-independent, which is what makes them the useful number
+ * here: a low-end phone fails on call volume long before it fails on maths. */
+var T = window.THWIP, d = T.debug;
+var ctx = document.getElementById('game').getContext('2d');
+var COUNT = {}, counting = false;
+['fillRect','strokeRect','drawImage','arc','beginPath','stroke','fill','moveTo',
+ 'lineTo','fillText','createLinearGradient','createRadialGradient','save','restore',
+ 'quadraticCurveTo','ellipse','setTransform','translate','rotate','scale','setLineDash']
+  .forEach(function (m) {
+    var orig = ctx[m];
+    ctx[m] = function () { if (counting) COUNT[m] = (COUNT[m] || 0) + 1; return orig.apply(ctx, arguments); };
+  });
+
+function bench(levelId, modeId, frames, setup) {
+  d.play(levelId, modeId);
+  var w = d.world;
+  if (setup) setup(w);
+  for (var i = 0; i < 40; i++) d.step(1 / 60);          // settle
+  COUNT = {};
+  var tick = 0, draw = 0, t0;
+  var realTick = w.tick.bind(w), realDraw = T.Render.draw;
+  w.tick = function () { var a = performance.now(); realTick.apply(w, arguments); tick += performance.now() - a; };
+  T.Render.draw = function () { var a = performance.now(); realDraw.apply(null, arguments); draw += performance.now() - a; };
+  counting = true;
+  t0 = performance.now();
+  for (i = 0; i < frames; i++) {
+    d.mouse.sx = d.view.w * 0.5 + 140; d.mouse.sy = d.view.h * 0.36;
+    d.step(1 / 60);
+  }
+  var total = performance.now() - t0;
+  counting = false;
+  w.tick = realTick; T.Render.draw = realDraw;
+  var calls = 0;
+  Object.keys(COUNT).forEach(function (k) { calls += COUNT[k]; });
+  var top = Object.keys(COUNT).sort(function (a, b) { return COUNT[b] - COUNT[a]; })
+    .slice(0, 5).map(function (k) { return k + '=' + Math.round(COUNT[k] / frames); });
+  return {
+    scene: modeId + '/' + levelId,
+    msFrame: +(total / frames).toFixed(2),
+    sim: +(tick / frames).toFixed(2),
+    draw: +(draw / frames).toFixed(2),
+    callsFrame: Math.round(calls / frames),
+    top: top.join(' ')
+  };
+}
+
+setTimeout(function () {
+  var rows = [];
+  rows.push(bench('quickstep', 'fast', 90));
+  rows.push(bench('overpass', 'fast', 90));
+  rows.push(bench('gauntlet', 'classic', 90));
+  rows.push(bench('midtown', 'big', 90, function (w) { w.player.reset(w.level.spawn.x, -6000); }));
+  // and again on the LOW preset, to show what the setting actually buys
+  T.Settings.usePreset('LOW');
+  var low = [bench('quickstep', 'fast', 60), bench('overpass', 'fast', 60),
+    bench('midtown', 'big', 60, function (w) { w.player.reset(w.level.spawn.x, -6000); })];
+  T.Settings.usePreset('HIGH');
+
+  var out = 'skin ' + T.Skin.loaded + '/' + T.Skin.total + ' loaded\n\n';
+  out += 'scene                 calls/frame   heaviest\n';
+  rows.forEach(function (r) {
+    out += r.scene.padEnd(20) + String(r.callsFrame).padStart(11) + '   ' + r.top + '\n';
+  });
+  out += '\nLOW preset\n';
+  low.forEach(function (r) {
+    out += r.scene.padEnd(20) + String(r.callsFrame).padStart(11) + '   ' + r.top + '\n';
+  });
+  document.getElementById('out').textContent = out;
+}, 2000);
+</script>
+</body></html>

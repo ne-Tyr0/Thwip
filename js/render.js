@@ -4,6 +4,20 @@
   'use strict';
   var T = global.THWIP, C = T.C, P = T.P, M = T.M;
 
+  /* Resolved quality settings, read every frame. settings.js owns the real
+   * values; this fallback keeps the renderer usable when it is not loaded
+   * (the headless tests never load it). */
+  var Q = T.Q || (T.Q = {
+    parallax: 3, particles: 1, trail: true, stars: true, facade: true,
+    hatch: true, vignette: true, shake: 1, flashes: true, hints: true,
+    smoothing: false, fpsShow: 0
+  });
+  T.onSettingsChange = function () {
+    Q = T.Q;
+    // baked layers hold the old detail level; drop them so they rebuild
+    layers = null; layerLevel = null; starCanvas = null;
+  };
+
   /* The optional art layer. When a slot is unset every one of these calls is
    * a cheap `false` and the primitive path below runs instead, so the game is
    * fully playable with no assets/ folder at all. */
@@ -19,7 +33,11 @@
     trail: [],
     reset: function () { this.list.length = 0; this.trail.length = 0; },
     add: function (x, y, vx, vy, life, size, color, kind) {
-      if (this.list.length > 420) this.list.shift();
+      // budget scales with the quality setting; OFF drops them at the source
+      // so no time is spent updating things that will never be drawn
+      var cap = 420 * (T.Q ? T.Q.particles : 1);
+      if (cap < 1) return;
+      if (this.list.length > cap) this.list.shift();
       this.list.push({ x: x, y: y, vx: vx, vy: vy, t: 0, life: life,
         size: size, color: color, kind: kind || 'dot' });
     },
@@ -53,7 +71,7 @@
       }
       // motion trail, only when actually moving fast
       var sp = player.speed();
-      if (sp > 430) {
+      if (T.Q && T.Q.trail && sp > 430) {
         this.trail.push({ x: player.cx(), y: player.cy(), t: 0, a: M.clamp((sp - 430) / 700, 0, 1) });
       }
       for (i = this.trail.length - 1; i >= 0; i--) {
@@ -109,6 +127,58 @@
     return h % 100000;
   }
 
+  /* Bake a parallax layer into one offscreen canvas.
+   *
+   * Drawing it live meant a fillRect per lit window per frame — around 570 of
+   * them, which is most of the frame budget on a weak device and all of it
+   * wasted, because the layer never changes. Painted once, it costs a single
+   * drawImage no matter how much detail is in it. */
+  function bakeLayer(L, baseY) {
+    var pad = 200;
+    var x0 = L.items.length ? L.items[0].x * L.f - pad : 0;
+    var last = L.items[L.items.length - 1];
+    var x1 = last ? (last.x + last.w) * L.f + pad : 0;
+    var w = Math.max(1, Math.min(8192, Math.ceil(x1 - x0)));
+    var h = Math.max(1, Math.ceil(L.top + 700));
+    var c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    var g = c.getContext('2d');
+    g.fillStyle = L.color;
+    for (var k = 0; k < L.items.length; k++) {
+      var it = L.items[k];
+      var x = it.x * L.f - x0, bw = it.w * L.f;
+      var y = (baseY - it.h) * L.f * 0.35;
+      g.fillStyle = L.color;
+      g.fillRect(x, y, bw, h - y);
+      if (it.spire) g.fillRect(x + bw * 0.45, y - 26 * L.f, 4, 26 * L.f);
+      g.fillStyle = 'rgba(255,214,102,0.30)';
+      for (var wi = 0; wi < it.win.length; wi++) {
+        g.fillRect(x + it.win[wi][0] * L.f, y + it.win[wi][1] * L.f, 3, 4);
+      }
+    }
+    L.baked = c;
+    L.bakedX = x0;
+  }
+
+  /* The starfield, likewise: 60-150 rects a frame for something that never
+   * moves. Baked flat; the twinkle becomes one global alpha wobble instead of
+   * a per-star one, which is indistinguishable in motion. */
+  var starCanvas = null, starAlt = -1;
+  function bakeStars(view, alt) {
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, view.w); c.height = Math.max(1, view.h);
+    var g = c.getContext('2d');
+    var rnd = M.rng(99);
+    var n = 60 + Math.round(alt * 90);
+    g.fillStyle = 'rgba(255,255,255,0.55)';
+    for (var i = 0; i < n; i++) {
+      g.fillRect(rnd() * view.w, rnd() * view.h * (0.55 + alt * 0.4), 2, 2);
+    }
+    starCanvas = c;
+    starAlt = alt;
+    starCanvas._w = view.w; starCanvas._h = view.h;
+  }
+
   function buildLayers(level, index) {
     if (layerLevel === index && layers) return;
     layerLevel = index;
@@ -142,28 +212,38 @@
     });
   }
 
+  /* Gradient objects are not free to build, and the sky is rebuilt on every
+   * single frame for something that only changes when the window resizes or
+   * you climb another quarter of a tower. Cached on those two things. */
+  var skyGrad = null, skyKey = '', vigGrad = null, vigKey = '';
   function drawBackground(ctx, view, cam, level, time, alt) {
     /* Climbing thins the air: on a tower the sky darkens and the stars come
      * out as you gain height, which is the only readout of progress you get
      * without looking at the HUD. Flat levels sit at alt 0 and are unchanged. */
-    var g = ctx.createLinearGradient(0, 0, 0, view.h);
-    g.addColorStop(0, alt > 0 ? mixHex(P.sky0, '#02030a', alt) : P.sky0);
-    g.addColorStop(0.55, alt > 0 ? mixHex(P.sky1, '#0a0c1e', alt) : P.sky1);
-    g.addColorStop(1, alt > 0 ? mixHex('#241a33', '#131024', alt) : '#241a33');
-    ctx.fillStyle = g;
+    var band = Math.round(alt * 8) / 8;
+    var key = view.h + '|' + band;
+    if (key !== skyKey) {
+      skyGrad = ctx.createLinearGradient(0, 0, 0, view.h);
+      skyGrad.addColorStop(0, band > 0 ? mixHex(P.sky0, '#02030a', band) : P.sky0);
+      skyGrad.addColorStop(0.55, band > 0 ? mixHex(P.sky1, '#0a0c1e', band) : P.sky1);
+      skyGrad.addColorStop(1, band > 0 ? mixHex('#241a33', '#131024', band) : '#241a33');
+      skyKey = key;
+    }
+    ctx.fillStyle = skyGrad;
     ctx.fillRect(0, 0, view.w, view.h);
 
-    // a few stars, fixed to the sky
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    var rnd = M.rng(99);
-    var n = 60 + Math.round(alt * 90);
-    for (var i = 0; i < n; i++) {
-      var sx = rnd() * view.w, sy = rnd() * view.h * (0.55 + alt * 0.4);
-      var tw = 0.4 + 0.6 * Math.abs(Math.sin(time * 0.8 + i));
-      ctx.globalAlpha = (0.25 + alt * 0.45) * tw;
-      ctx.fillRect(sx, sy, 2, 2);
+    // stars, baked. Re-baked only when the viewport or the altitude band
+    // changes, so a whole sky costs one drawImage.
+    if (Q.stars) {
+      var band = Math.round(alt * 4) / 4;
+      if (!starCanvas || starAlt !== band ||
+          starCanvas._w !== view.w || starCanvas._h !== view.h) {
+        bakeStars(view, band);
+      }
+      ctx.globalAlpha = (0.45 + alt * 0.4) * (0.82 + 0.18 * Math.sin(time * 0.8));
+      ctx.drawImage(starCanvas, 0, 0);
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
 
     var baseY = level.bounds.maxY;
 
@@ -177,8 +257,11 @@
      * The horizon rides the camera by the layer's parallax factor, and is
      * clamped so the strip never lifts clear of the screen edge. */
     var slots = ['city.far', 'city.mid', 'city.near'];
-    if (Skin.has(slots[0]) || Skin.has(slots[1]) || Skin.has(slots[2])) {
-      for (var ci = 0; ci < 3; ci++) {
+    if (Q.parallax > 0 &&
+        (Skin.has(slots[0]) || Skin.has(slots[1]) || Skin.has(slots[2]))) {
+      // the CITY LAYERS setting has to bite on the skinned path too, and the
+      // layers are listed far-to-near so trimming takes the nearest ones off
+      for (var ci = 3 - Math.min(3, Q.parallax); ci < 3; ci++) {
         if (!Skin.has(slots[ci])) continue;
         var sm = Skin.meta(slots[ci]);
         var f = layers[ci].f;
@@ -194,27 +277,14 @@
       return;
     }
 
-    for (var li = 0; li < layers.length; li++) {
+    // how many parallax layers to draw at all — the cheapest quality dial
+    var depth = Math.min(layers.length, Q.parallax);
+    for (var li = layers.length - depth; li < layers.length; li++) {
       var L = layers[li];
+      if (!L.baked) bakeLayer(L, baseY);
       var ox = -cam.x * L.f + view.w * 0.5;
       var oy = -cam.y * L.f + view.h * 0.5 + L.top * 0.5;
-      ctx.fillStyle = L.color;
-      for (var k = 0; k < L.items.length; k++) {
-        var it = L.items[k];
-        var x = it.x * L.f + ox;
-        if (x > view.w + 60 || x + it.w * L.f < -60) continue;
-        var w = it.w * L.f;
-        var y = oy + (baseY - it.h) * L.f * 0.35;
-        var h = view.h - y + 40;
-        ctx.fillRect(x, y, w, h);
-        if (it.spire) ctx.fillRect(x + w * 0.45, y - 26 * L.f, 4, 26 * L.f);
-        ctx.fillStyle = 'rgba(255,214,102,0.30)';
-        for (var wi = 0; wi < it.win.length; wi++) {
-          var wx = x + it.win[wi][0] * L.f, wy = y + it.win[wi][1] * L.f;
-          if (wy < view.h) ctx.fillRect(wx, wy, 3, 4);
-        }
-        ctx.fillStyle = L.color;
-      }
+      ctx.drawImage(L.baked, Math.round(L.bakedX + ox), Math.round(oy));
     }
   }
 
@@ -251,7 +321,7 @@
       // actually on screen: a tower face is 30,000px tall and hatching all of
       // it would be tens of thousands of strokes a frame.
       var y0 = Math.max(s.y + 6, vis.y0), y1 = Math.min(s.y + s.h, vis.y1);
-      if (y1 - y0 > 4) {
+      if (Q.hatch && y1 - y0 > 4) {
         ctx.strokeStyle = 'rgba(0,0,0,0.16)';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -263,7 +333,7 @@
         ctx.stroke();
       }
       // lit windows down a tall face, so a building reads as a building
-      if (s.h > 900 && s.w > 200) drawFacade(ctx, s, vis);
+      if (Q.facade && s.h > 900 && s.w > 200) drawFacade(ctx, s, vis);
     }
   }
 
@@ -286,35 +356,44 @@
     if (rnd) { /* seed kept for future variation */ }
   }
 
+  /* Spike beds. Two things matter here and neither is obvious:
+   *
+   * They can be very long — QUICKSTEP's is 1,850px, about 115 teeth — and the
+   * bed was being drawn in full every frame no matter how little of it was on
+   * screen. Teeth are now clipped to the camera, which is most of the saving.
+   *
+   * The rest is batching: every tooth used to be its own beginPath/fill pair,
+   * so a single bed cost ~500 canvas calls. All the teeth of all the beds now
+   * go into one path and one fill. */
   function drawHazards(ctx, level, vis, time) {
-    ctx.fillStyle = P.hazard;
-    for (var i = 0; i < level.hazards.length; i++) {
-      var h = level.hazards[i];
+    var i, h, any = false;
+    for (i = 0; i < level.hazards.length; i++) {
+      h = level.hazards[i];
       if (!visible(vis, h)) continue;
-      // spikes tile along their bed rather than stretching, so a 190px bed and
-      // a 1850px bed have the same tooth size and read at the same danger
+
+      // skinned beds tile via a pattern: one op regardless of length
       if (Skin.has('hazard')) {
-        var hm = Skin.meta('hazard'), tw = hm.frameW || 32;
-        for (var hx = h.x; hx < h.x + h.w; hx += tw) {
-          var seg = Math.min(tw, h.x + h.w - hx);
-          Skin.drawFrame(ctx, 'hazard', { x: hx, y: h.y, w: seg, h: h.h }, 0, 0, false);
-        }
+        var x0 = Math.max(h.x, vis.x0), x1 = Math.min(h.x + h.w, vis.x1);
+        if (x1 > x0) Skin.fillTile(ctx, 'hazard', { x: x0, y: h.y, w: x1 - x0, h: h.h });
         continue;
       }
+
       ctx.fillStyle = 'rgba(255,84,112,0.18)';
-      ctx.fillRect(h.x, h.y - 6, h.w, h.h + 6);
-      ctx.fillStyle = P.hazard;
-      var n = Math.max(2, Math.floor(h.w / 16));
-      for (var k = 0; k < n; k++) {
-        var x = h.x + (k + 0.5) * (h.w / n);
-        ctx.beginPath();
-        ctx.moveTo(x - h.w / n * 0.5, h.y + h.h);
+      ctx.fillRect(Math.max(h.x, vis.x0), h.y - 6,
+        Math.min(h.x + h.w, vis.x1) - Math.max(h.x, vis.x0), h.h + 6);
+
+      if (!any) { ctx.beginPath(); any = true; }
+      var n = Math.max(2, Math.floor(h.w / 16)), step = h.w / n;
+      var k0 = Math.max(0, Math.floor((vis.x0 - h.x) / step) - 1);
+      var k1 = Math.min(n, Math.ceil((vis.x1 - h.x) / step) + 1);
+      for (var k = k0; k < k1; k++) {
+        var x = h.x + (k + 0.5) * step;
+        ctx.moveTo(x - step * 0.5, h.y + h.h);
         ctx.lineTo(x, h.y - 2 - Math.sin(time * 3 + k) * 1.5);
-        ctx.lineTo(x + h.w / n * 0.5, h.y + h.h);
-        ctx.closePath();
-        ctx.fill();
+        ctx.lineTo(x + step * 0.5, h.y + h.h);
       }
     }
+    if (any) { ctx.fillStyle = P.hazard; ctx.fill(); }
   }
 
   /* Burn-down arc: how much fuse is left, drawn as the ring unwinding
@@ -953,7 +1032,7 @@
     var mode = world.mode;
 
     // plummet: the screen stretches and reddens as a lost fall winds up
-    if (world.plummet > 0.02) {
+    if (Q.flashes && world.plummet > 0.02) {
       var pl = world.plummet;
       var pg = ctx.createLinearGradient(0, 0, 0, view.h);
       pg.addColorStop(0, 'rgba(255,84,112,' + (0.22 * pl).toFixed(3) + ')');
@@ -966,16 +1045,24 @@
 
     // slow-mo vignette
     var slow = 1 - M.clamp((world.timeScale - C.SLOWMO) / (1 - C.SLOWMO), 0, 1);
-    if (slow > 0.01) {
-      var g = ctx.createRadialGradient(view.w * 0.5, view.h * 0.5, view.h * 0.42,
-        view.w * 0.5, view.h * 0.5, view.h * 0.9);
-      g.addColorStop(0, 'rgba(80,140,255,0)');
-      g.addColorStop(0.6, 'rgba(70,120,255,' + (0.07 * slow).toFixed(3) + ')');
-      g.addColorStop(1, 'rgba(60,110,255,' + (0.30 * slow).toFixed(3) + ')');
-      ctx.fillStyle = g;
+    if (Q.vignette && slow > 0.01) {
+      // built at full strength once and faded with globalAlpha, rather than
+      // rebuilt every frame just to vary the stop opacities
+      var vkey = view.w + 'x' + view.h;
+      if (vigKey !== vkey) {
+        vigGrad = ctx.createRadialGradient(view.w * 0.5, view.h * 0.5, view.h * 0.42,
+          view.w * 0.5, view.h * 0.5, view.h * 0.9);
+        vigGrad.addColorStop(0, 'rgba(80,140,255,0)');
+        vigGrad.addColorStop(0.6, 'rgba(70,120,255,0.07)');
+        vigGrad.addColorStop(1, 'rgba(60,110,255,0.30)');
+        vigKey = vkey;
+      }
+      ctx.globalAlpha = slow;
+      ctx.fillStyle = vigGrad;
       ctx.fillRect(0, 0, view.w, view.h);
+      ctx.globalAlpha = 1;
     }
-    if (world.flash > 0) {
+    if (Q.flashes && world.flash > 0) {
       ctx.fillStyle = 'rgba(255,84,112,' + (world.flash * 0.35).toFixed(3) + ')';
       ctx.fillRect(0, 0, view.w, view.h);
     }
@@ -1033,8 +1120,12 @@
     // death curtain: brief, and it says why
     if (world.state === 'dead') {
       var k = M.clamp(world.deathTimer / C.DEATH_RESPAWN, 0, 1);
-      ctx.fillStyle = 'rgba(120,10,26,' + (0.35 * k).toFixed(3) + ')';
-      ctx.fillRect(0, 0, view.w, view.h);
+      // the wash is the only part that flashes; the word DEAD always shows,
+      // so turning flashes off never costs you information
+      if (Q.flashes) {
+        ctx.fillStyle = 'rgba(120,10,26,' + (0.35 * k).toFixed(3) + ')';
+        ctx.fillRect(0, 0, view.w, view.h);
+      }
       hudText(ctx, 'DEAD', view.w * 0.5, view.h * 0.5 - 6, 46, P.hazard, 'center');
       hudText(ctx, 'RESTARTING', view.w * 0.5, view.h * 0.5 + 24, 12,
         'rgba(255,180,195,0.8)', 'center', '');
@@ -1044,7 +1135,7 @@
      * This used to stack a level hint, a SLOW label and a control legend in
      * the same 40px, and the last two overlapped. Now it is one slot: the
      * hint while it is still useful, the controls once it has faded. */
-    if (world.runTime < 6 && world.state === 'playing') {
+    if (Q.hints && world.runTime < 6 && world.state === 'playing') {
       var a = M.clamp((6 - world.runTime) / 2, 0, 1);
       hudText(ctx, world.level.hint, view.w * 0.5, view.h - 22, 13,
         'rgba(233,237,255,' + (a * 0.85).toFixed(2) + ')', 'center', '');
@@ -1142,7 +1233,7 @@
     var time = ui.time;
     // pixel art must not be filtered; set once a frame since the flag is
     // context state and the transform stack below does not preserve intent
-    ctx.imageSmoothingEnabled = !Skin.pixel;
+    ctx.imageSmoothingEnabled = !!Q.smoothing;
 
     var alt = level.axis === 'y'
       ? M.clamp((level.baseY - cam.y) / level.climb, 0, 1) : 0;

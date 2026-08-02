@@ -18,6 +18,7 @@
   var curMode = T.Modes.get('classic');
   var levelIndex = 0;           // index into curMode.levels
   var picking = false;          // title screen: mode grid vs level grid
+  var inSettings = false;
   var uiTime = 0;
   var mouse = { sx: 0, sy: 0, wx: 0, wy: 0, down: false, right: false };
   var keys = {};
@@ -70,7 +71,19 @@
     write('thwip.migrated.modes', '1');
   })();
 
-  /* ---- screens ---------------------------------------------------------- */
+  /* ---- screens ----------------------------------------------------------
+   * The DOM helpers tolerate a missing element. index.html has every id, but
+   * the dev harnesses under tools/ embed a cut-down shell, and a hard
+   * getElementById there throws during init and takes the whole game down. */
+  function panel(id, on) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = on ? '' : 'none';
+  }
+  function setText(id, s) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = s;
+  }
+
   function show(name) {
     scene = name;
     screens.title.classList.toggle('on', name === 'title');
@@ -124,7 +137,8 @@
     if (mode.slowmo === 'meter') k.push(['RMB', 'slow-mo']);
     if (mode.wallJump) k.push(['INTO WALL', 'slide, then JUMP to kick']);
     k.push(['R', 'restart'], ['ESC', 'back'], ['M', 'mute']);
-    document.getElementById('modeKeys').innerHTML = k.map(function (p) {
+    var kh = document.getElementById('modeKeys');
+    if (kh) kh.innerHTML = k.map(function (p) {
       return '<span><b>' + p[0] + '</b>' + p[1] + '</span>';
     }).join('');
   }
@@ -132,20 +146,105 @@
   function openMode(id) {
     curMode = T.Modes.get(id);
     picking = true;
-    document.getElementById('modePanel').style.display = 'none';
-    document.getElementById('levelPanel').style.display = '';
-    document.getElementById('modeTitle').textContent = curMode.name;
-    document.getElementById('modeSub').textContent = curMode.tagline;
-    document.getElementById('modeHint').textContent = curMode.blurb;
+    panel('modePanel', false);
+    panel('levelPanel', true);
+    setText('modeTitle', curMode.name);
+    setText('modeSub', curMode.tagline);
+    setText('modeHint', curMode.blurb);
     buildKeys(curMode);
     buildLevelList();
   }
 
   function backToModes() {
     picking = false;
-    document.getElementById('modePanel').style.display = '';
-    document.getElementById('levelPanel').style.display = 'none';
+    inSettings = false;
+    panel('modePanel', true);
+    panel('levelPanel', false);
+    panel('setPanel', false);
     buildModeList();
+  }
+
+  /* ---- settings screen --------------------------------------------------
+   * Grouped, and every row carries a one-line reason. A settings menu that
+   * lists "particles: half" with no explanation makes people guess at what
+   * they are trading, so each control says what it costs or protects. */
+  var SGROUPS = [
+    ['DISPLAY', ['resScale', 'fpsCap', 'fpsShow']],
+    ['GRAPHICS', ['parallax', 'particles', 'trail', 'stars', 'facade', 'hatch',
+      'vignette', 'smoothing']],
+    ['COMFORT', ['shake', 'flashes', 'hints']]
+  ];
+
+  function buildSettings() {
+    var S = T.Settings;
+    var host = document.getElementById('setList');
+    host.innerHTML = '';
+    setText('setPreset', S.preset());
+
+    SGROUPS.forEach(function (grp) {
+      var h = document.createElement('div');
+      h.className = 'sgroup';
+      h.textContent = grp[0];
+      host.appendChild(h);
+
+      grp[1].forEach(function (key) {
+        var def = S.defs[key], cur = S.get(key);
+        var row = document.createElement('div');
+        row.className = 'srow';
+        row.innerHTML = '<div class="txt"><div class="lab">' + def.label + '</div>' +
+          (def.help ? '<div class="exp">' + def.help + '</div>' : '') + '</div>';
+
+        var ctl = document.createElement('div');
+        ctl.className = 'ctl';
+        var opts = def.kind === 'bool' ? [[false, 'OFF'], [true, 'ON']] : def.opts;
+        opts.forEach(function (o) {
+          var b = document.createElement('button');
+          b.className = 'opt' + (cur === o[0] ? ' on' : '');
+          b.textContent = o[1];
+          b.addEventListener('click', function () {
+            Audio.play('ui');
+            S.set(key, o[0]);
+            buildSettings();
+          });
+          ctl.appendChild(b);
+        });
+        row.appendChild(ctl);
+        host.appendChild(row);
+      });
+    });
+
+    var reset = document.createElement('button');
+    reset.className = 'preset';
+    reset.style.marginTop = '22px';
+    reset.textContent = 'RESET TO DEFAULTS';
+    reset.addEventListener('click', function () { Audio.play('ui'); S.reset(); buildSettings(); });
+    host.appendChild(reset);
+
+    var row2 = document.getElementById('presetRow');
+    row2.innerHTML = '';
+    S.presetNames.concat(['CUSTOM']).forEach(function (n) {
+      var b = document.createElement('button');
+      b.className = 'preset' + (S.preset() === n ? ' on' : '');
+      b.textContent = n;
+      if (n !== 'CUSTOM') {
+        b.addEventListener('click', function () {
+          Audio.play('ui'); S.usePreset(n); buildSettings();
+        });
+      } else { b.style.cursor = 'default'; }
+      row2.appendChild(b);
+    });
+  }
+
+  function openSettings() {
+    inSettings = true;
+    panel('modePanel', false);
+    panel('levelPanel', false);
+    panel('setPanel', true);
+    setText('setPerf',
+      Math.round(view.w) + ' x ' + Math.round(view.h) + '  ·  BUFFER ' +
+      canvas.width + ' x ' + canvas.height);
+    buildSettings();
+    show('title');
   }
 
   function levelCard(mode, id, idx, open) {
@@ -201,9 +300,9 @@
     var mode = curMode, done = clearedCount(mode);
     host.innerHTML = '';
 
-    document.getElementById('modeTally').textContent = mode.scoring === 'altitude'
+    setText('modeTally', mode.scoring === 'altitude'
       ? done + ' / ' + mode.levels.length + ' TOPPED OUT'
-      : done + ' / ' + mode.levels.length + ' CLEARED';
+      : done + ' / ' + mode.levels.length + ' CLEARED');
 
     var size = mode.unlockBlock || mode.levels.length;
     for (var start = 0; start < mode.levels.length; start += size) {
@@ -327,11 +426,12 @@
     }
     if (mode.scoring === 'altitude') saveAlt(id, world.level.climb);
 
-    document.getElementById('resTitle').textContent =
-      (mode.scoring === 'altitude' ? 'SUMMIT · ' : '') + world.level.name;
-    document.getElementById('resPb').textContent = isPb ? '★ NEW PERSONAL BEST' : '';
-    document.getElementById('resTime').textContent = M.fmtTime(t);
-    document.getElementById('resTime').style.color = medalColor(medal) || P.ink;
+    setText('resTitle',
+      (mode.scoring === 'altitude' ? 'SUMMIT · ' : '') + world.level.name);
+    setText('resPb', isPb ? '★ NEW PERSONAL BEST' : '');
+    setText('resTime', M.fmtTime(t));
+    var tEl = document.getElementById('resTime');
+    if (tEl) tEl.style.color = medalColor(medal) || P.ink;
 
     /* "0.4s off gold" is the single most motivating number on this screen —
      * it turns a finished run into the next attempt. */
@@ -365,7 +465,7 @@
         world.enemies.filter(function (e) { return e.webbable; }).length);
       rows += row('TIME PENALTIES', world.penalty.toFixed(1) + 's');
     }
-    document.getElementById('resRows').innerHTML = rows;
+    setHTML('resRows', rows);
 
     var next = document.getElementById('btnNext');
     var more = levelIndex < mode.levels.length - 1;
@@ -380,12 +480,20 @@
     else toMenu();
   }
 
-  document.getElementById('btnNext').addEventListener('click', function () { Audio.play('ui'); nextLevel(); });
-  document.getElementById('btnRetry').addEventListener('click', function () { startLevel(levelIndex); });
-  document.getElementById('btnMenu').addEventListener('click', toMenu);
-  document.getElementById('btnBack').addEventListener('click', function () {
-    Audio.play('ui'); backToModes();
-  });
+  /* Bind only if the element exists. index.html has all of these, but the dev
+   * harnesses in tools/ embed a cut-down shell — and a hard getElementById
+   * here throws during init, which kills the whole module and takes the game
+   * down with it. A missing button should cost you that button, nothing more. */
+  function on(id, ev, fn) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener(ev, fn);
+  }
+  on('btnNext', 'click', function () { Audio.play('ui'); nextLevel(); });
+  on('btnRetry', 'click', function () { startLevel(levelIndex); });
+  on('btnMenu', 'click', toMenu);
+  on('btnBack', 'click', function () { Audio.play('ui'); backToModes(); });
+  on('btnSetBack', 'click', function () { Audio.play('ui'); backToModes(); });
+  on('btnSettings', 'click', function () { Audio.play('ui'); openSettings(); });
 
   /* ---- input ------------------------------------------------------------ */
   var input = {
@@ -405,7 +513,13 @@
       if (kk === 'r' && scene !== 'title') { restart(); }
       if (kk === 'escape') {
         if (scene !== 'title') toMenu();
-        else if (picking) { Audio.play('ui'); backToModes(); }
+        else if (inSettings || picking) { Audio.play('ui'); backToModes(); }
+      }
+      // settings are reachable from anywhere, including mid-run
+      if (kk === 'o' && !inSettings) {
+        Audio.play('ui');
+        if (scene === 'play') toMenu();
+        openSettings();
       }
       if (kk === 'm') Audio.toggleMute();
       if (scene === 'title' && picking && kk >= '1' && kk <= '9') {
@@ -477,7 +591,7 @@
     if (b.maxX - b.minX > vw) cam.x = M.clamp(cam.x, b.minX + vw * 0.5, b.maxX - vw * 0.5);
     if (b.maxY - b.minY > vh) cam.y = M.clamp(cam.y, b.minY + vh * 0.5, b.maxY - vh * 0.5);
 
-    var s = world.shake;
+    var s = world.shake * (T.Q ? T.Q.shake : 1);
     if (s > 0.05) {
       cam.shakeX = (Math.random() - 0.5) * s * 1.6;
       cam.shakeY = (Math.random() - 0.5) * s * 1.6;
@@ -570,15 +684,27 @@
   }
 
   /* ---- loop ------------------------------------------------------------- */
+  /* Resolution scale is the single biggest lever on a weak device: the canvas
+   * backing store is width * height * dpr^2 pixels, so halving the scale is a
+   * quarter of the fill cost. The CSS size never changes, so the game still
+   * fills the window — it is just rendered smaller and stretched up. */
   function resize() {
-    view.dpr = Math.min(2, global.devicePixelRatio || 1);
+    var S = T.Settings;
+    var scale = S ? S.get('resScale') : 1;
+    view.dpr = Math.min(2, global.devicePixelRatio || 1) * scale;
     view.w = canvas.clientWidth || global.innerWidth;
     view.h = canvas.clientHeight || global.innerHeight;
-    canvas.width = Math.round(view.w * view.dpr);
-    canvas.height = Math.round(view.h * view.dpr);
+    canvas.width = Math.max(1, Math.round(view.w * view.dpr));
+    canvas.height = Math.max(1, Math.round(view.h * view.dpr));
+    // upscaling a low-res buffer should stay crisp for pixel art
+    canvas.style.imageRendering = scale < 1 && !(T.Q && T.Q.smoothing)
+      ? 'pixelated' : 'auto';
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   }
   global.addEventListener('resize', resize);
+  // a settings change can alter the backing-store size, so re-fit immediately
+  var chain = T.onSettingsChange;
+  T.onSettingsChange = function () { if (chain) chain(); resize(); };
 
   var wasSliding = false, wasDead = false;
 
@@ -649,18 +775,85 @@
     });
   }
 
-  var last = 0;
+  /* ---- frame pacing + FPS readout ---------------------------------------
+   * The limiter skips work rather than sleeping: rAF still fires at the
+   * display rate, and we simply return until enough time has passed. A steady
+   * 30 reads as far smoother than an unstable 55, and on a laptop it is the
+   * difference between warm and roaring. */
+  var last = 0, fpsHist = [], fpsShown = 0, fpsTimer = 0, nextDue = 0;
+
   function frame(now) {
     requestAnimationFrame(frame);
-    var dt = last ? Math.min(0.05, (now - last) / 1000) : 1 / 60;
+
+    /* Pace against a running deadline rather than the previous frame's delta.
+     * Comparing raw deltas means ordinary vsync jitter — a frame arriving at
+     * 15.9ms instead of 16.7 — falls below the threshold and gets thrown
+     * away, so a 60Hz display asked for 60fps stutters. A deadline with a
+     * couple of milliseconds of tolerance absorbs that, and clamping it
+     * forward stops a stall from queueing a burst of catch-up frames. */
+    var cap = T.Settings ? T.Settings.get('fpsCap') : 0;
+    if (cap > 0) {
+      var interval = 1000 / cap;
+      if (now < nextDue - 2) return;
+      nextDue = Math.max(now + interval * 0.5, nextDue + interval);
+    } else {
+      nextDue = 0;
+    }
+
+    var raw = last ? (now - last) / 1000 : 1 / 60;
     last = now;
+
+    var dt = Math.min(0.05, raw);
     step(dt);
+
+    // frame-time history for the counter and its graph
+    fpsHist.push(raw * 1000);
+    if (fpsHist.length > 120) fpsHist.shift();
+    fpsTimer += raw;
+    if (fpsTimer > 0.25) {
+      fpsTimer = 0;
+      var sum = 0;
+      for (var i = 0; i < fpsHist.length; i++) sum += fpsHist[i];
+      fpsShown = sum > 0 ? Math.round(1000 / (sum / fpsHist.length)) : 0;
+    }
+    if (T.Q && T.Q.fpsShow) drawFps();
+  }
+
+  /* Drawn straight to the canvas after everything else, in screen space, so
+   * it survives every camera transform and costs nothing when off. */
+  function drawFps() {
+    // bottom RIGHT: the bottom-left corner already belongs to the speed bar,
+    // and the two were drawing on top of each other
+    var mode = T.Q.fpsShow, x = view.w - 12, y = view.h - 12;
+    ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+    if (mode === 2) {
+      var w = 120, h = 30, gx = x - w, gy = y - h - 14;
+      ctx.fillStyle = 'rgba(6,8,16,0.72)';
+      ctx.fillRect(gx, gy, w, h);
+      // 16.7ms reference line: above it is a missed frame at 60
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      ctx.fillRect(gx, gy + h - 16.7 / 40 * h, w, 1);
+      for (var i = 0; i < fpsHist.length; i++) {
+        var v = Math.min(40, fpsHist[i]);
+        var bh = Math.max(1, v / 40 * h);
+        ctx.fillStyle = fpsHist[i] > 33 ? P.hazard : fpsHist[i] > 17 ? P.gold : P.goal;
+        ctx.fillRect(gx + i, gy + h - bh, 1, bh);
+      }
+    }
+    ctx.font = 'bold 13px ' + T.FONT;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = fpsShown < 30 ? P.hazard : fpsShown < 55 ? P.gold : P.goal;
+    ctx.fillText(fpsShown + ' FPS', x, y);
+    ctx.textAlign = 'left';
   }
 
   resize();
   backToModes();
   show('title');
   requestAnimationFrame(frame);
+
+  /* No startup benchmark. See the note in settings.js: measuring during page
+   * load produced false positives and quietly demoted capable machines. */
 
   // handy for poking at the sim from the console, and for driving the real
   // frame path from a test harness when rAF is throttled

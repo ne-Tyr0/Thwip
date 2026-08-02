@@ -219,6 +219,37 @@
   .btn.primary:hover { border-color: var(--ok); background: rgba(6,214,160,0.10); }
   .btn kbd { color: var(--faint); font: inherit; margin-left: 7px; }
   .hint { margin-top: 16px; font-size: var(--t-small); color: var(--faint); line-height: 1.6; }
+
+  /* ---- settings ---------------------------------------------------------
+   * Two columns of rows: label + explanation on the left, the control on the
+   * right. Every option carries a one-line reason, because "shadows: medium"
+   * with no context makes people guess. */
+  #setPanel { width: min(760px, 94vw); }
+  .presets { display: flex; gap: 7px; margin: 4px 0 18px; flex-wrap: wrap; }
+  .preset {
+    background: none; border: 1px solid var(--hair); color: var(--dim);
+    font: inherit; font-size: var(--t-micro); letter-spacing: 0.16em;
+    padding: 8px 14px; cursor: pointer;
+  }
+  .preset:hover { border-color: var(--live); color: var(--ink); }
+  .preset.on { border-color: var(--live); color: var(--live); }
+
+  .sgroup {
+    font-size: var(--t-micro); letter-spacing: 0.22em; color: var(--faint);
+    margin: 22px 0 6px; padding-bottom: 6px; border-bottom: 1px solid var(--hair);
+  }
+  .srow { display: flex; align-items: flex-start; gap: 16px; padding: 11px 0; }
+  .srow .txt { flex: 1; min-width: 0; }
+  .srow .lab { font-size: var(--t-small); letter-spacing: 0.1em; }
+  .srow .exp { font-size: var(--t-micro); color: var(--faint); line-height: 1.6; margin-top: 4px; }
+  .srow .ctl { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
+  .opt {
+    background: none; border: 1px solid var(--hair); color: var(--dim);
+    font: inherit; font-size: var(--t-micro); padding: 5px 9px; cursor: pointer;
+    letter-spacing: 0.08em; min-width: 42px;
+  }
+  .opt:hover { border-color: var(--live); color: var(--ink); }
+  .opt.on { border-color: var(--live); color: var(--live); background: rgba(23,195,178,0.10); }
 </style>
 </head>
 <body>
@@ -229,6 +260,9 @@
     <h1>THWIP</h1>
     <div class="tag">NON-LETHAL WEB-SWINGING SPEEDRUN</div>
     <div class="modes" id="modeList"></div>
+    <div class="presets" style="margin-top:18px">
+      <button class="preset" id="btnSettings">SETTINGS &nbsp;O</button>
+    </div>
     <div class="keys">
       <span><b>A</b> <b>D</b> move</span>
       <span><b>SPACE</b> jump</span>
@@ -255,6 +289,18 @@
     <div class="keys" id="modeKeys"></div>
     <div class="hint" id="modeHint"></div>
   </div>
+
+  <div class="panel" id="setPanel" style="display:none">
+    <button class="back" id="btnSetBack">&lsaquo; BACK &nbsp;ESC</button>
+    <div class="bar">
+      <h2>SETTINGS</h2>
+      <span class="sub" id="setPreset"></span>
+      <span class="spacer"></span>
+      <span class="tally" id="setPerf"></span>
+    </div>
+    <div class="presets" id="presetRow"></div>
+    <div id="setList"></div>
+  </div>
 </div>
 
 <div id="results" class="screen">
@@ -274,6 +320,7 @@
 </div>
 
 <script src="js/core.js"></script>
+<script src="js/settings.js"></script>
 <!-- Optional art layer. Both are safe to delete: without them the game draws
      itself out of canvas primitives exactly as before. -->
 <script src="assets/manifest.js"></script>
