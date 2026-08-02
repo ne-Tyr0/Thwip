@@ -46,11 +46,20 @@ distance was when you fired, and you become a pendulum around that point:
 angular velocity on attach so momentum carries through the connection, and back
 into a tangent velocity on release so letting go at the right moment launches
 you. Left/right adds a small tangential nudge to pump the arc, but gravity stays
-in charge. Fired at an **enemy**, the same shot pins them to the nearest surface
-and takes them out of the fight for the rest of the attempt — webbed in place,
-never killed — and it does not cost you your current swing. Fired at nothing, it
-is a 200ms cooldown and no other penalty. Mid-air re-thwip is always allowed and
-is the core traversal tech: release, arc up, fire again before you fall.
+in charge. Fired at an **enemy**, the same shot launches a web-shot that
+*travels* — 1600px/s, so the full 470px range takes 0.29s — and where it lands
+it pins them to the nearest surface and takes them out of the fight for the rest
+of the attempt: webbed in place, never killed, and it does not cost you your
+current swing. Fired at nothing, it is a 200ms cooldown and no other penalty.
+Mid-air re-thwip is always allowed and is the core traversal tech: release, arc
+up, fire again before you fall.
+
+Only the enemy shot travels. The anchor shot is instant and has to be, because
+re-thwipping at 470px mid-arc is the traversal, and a rope that arrived a
+quarter-second late would attach to where you *were*. Enemies were the opposite
+problem: point, click, deleted, with no way to miss something you could see. Now
+a grunt that walks out of the lane in those two tenths of a second genuinely
+dodges it, and the web splats on the wall behind them.
 
 The rope only pulls, never pushes. Clip a rooftop at the bottom of an arc and it
 goes slack — normal platformer physics take over and the rope snaps taut again

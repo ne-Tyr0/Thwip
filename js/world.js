@@ -36,6 +36,7 @@
     this.player = new T.Player(this.level.spawn.x, this.level.spawn.y);
     this.enemies = this.level.enemies.map(function (d) { return new T.Enemy(d); });
     this.bullets = [];
+    this.webShots = [];       // web-shots in flight, see updateWebShots
     this.events = [];
     this.deaths = 0;              // survives reset(): it counts the whole session
     this.bestY = this.level.spawn.y;
@@ -47,6 +48,7 @@
     this.player.reset(L.spawn.x, L.spawn.y);
     this.enemies.forEach(function (e) { e.reset(); });
     this.bullets.length = 0;
+    this.webShots.length = 0;
     this.events.length = 0;
     this.runTime = 0;
     this.penalty = 0;
@@ -190,23 +192,19 @@
 
     if (hit.target.kind === 'enemy') {
       e = hit.target.ref;
-      if (e.webbable) {
-        // tagging an enemy never costs you your current swing
-        // where the shot came from, so the strand can be drawn flying out
-        // rather than the cocoon simply appearing
-        e.webFrom = { x: cx, y: cy };
-        T.stickEnemy(e, this);
-        e.flash = 1;
-        this.stuckCount++;
-        this.shakeAdd(5);
-        this.emit('stick', { x: hit.x, y: hit.y, enemy: e });
-        return true;
-      }
-      e.flash = 1;
-      this.shakeAdd(2);
-      this.emit('clank', { x: hit.x, y: hit.y });
+      /* Launch a web-shot rather than resolving it here.
+       *
+       * What the click MEANS is still decided instantly by the raycast, so
+       * the reticle's colour is never a lie about which action you are about
+       * to take — but the web itself has to fly. Tagging an enemy still never
+       * costs your current swing. */
+      this.webShots.push({
+        x: cx, y: cy, vx: dx * C.WEB_SHOT_SPEED, vy: dy * C.WEB_SHOT_SPEED,
+        from: { x: cx, y: cy }, life: (C.WEB_RANGE * 1.15) / C.WEB_SHOT_SPEED
+      });
       if (!p.web) p.missCd = C.WEB_MISS_CD;
-      return false;
+      this.emit('websho', { x: cx, y: cy });
+      return true;
     }
 
     if (hit.target.kind === 'anchor') {
@@ -398,10 +396,66 @@
     }
   };
 
+  /* Web-shots in flight. They collide with whatever they actually reach, so a
+   * grunt that walks clear in the 0.2s of travel genuinely dodges it — which
+   * is the entire point of making them travel.
+   *
+   * Two different hulls, on purpose. Enemies are tested against the shot's
+   * full radius, so a shot the ray said would connect still connects. Geometry
+   * is tested against the centre point alone, because the ray that classified
+   * the click was a point ray: stand on a roof, fire flat at a grunt on the
+   * same roof, and a fat hull clips the deck a pixel below the muzzle and eats
+   * the shot the game just promised you. */
+  World.prototype.updateWebShots = function (dt) {
+    var i, k, s, e, box, tip, gone;
+    for (i = this.webShots.length - 1; i >= 0; i--) {
+      s = this.webShots[i];
+      s.x += s.vx * dt; s.y += s.vy * dt;
+      s.life -= dt;
+      gone = s.life <= 0;
+      box = { x: s.x - C.WEB_SHOT_R, y: s.y - C.WEB_SHOT_R,
+        w: C.WEB_SHOT_R * 2, h: C.WEB_SHOT_R * 2 };
+      tip = { x: s.x, y: s.y, w: 0, h: 0 };
+
+      if (!gone) {
+        for (k = 0; k < this.enemies.length; k++) {
+          e = this.enemies[k];
+          if (e.stuck || !Ph.overlap(box, e.box())) continue;
+          if (e.webbable) {
+            e.webFrom = s.from;          // strand is drawn from where you fired
+            T.stickEnemy(e, this);
+            e.flash = 1;
+            this.stuckCount++;
+            this.shakeAdd(5);
+            this.emit('stick', { x: s.x, y: s.y, enemy: e });
+          } else {
+            // armour: the web just spatters off it, which is the read we want
+            e.flash = 1;
+            this.shakeAdd(2);
+            this.emit('clank', { x: s.x, y: s.y });
+          }
+          gone = true;
+          break;
+        }
+      }
+      if (!gone) {
+        for (k = 0; k < this.solids.length; k++) {
+          if (Ph.overlap(tip, this.solids[k])) {
+            this.emit('websplat', { x: s.x, y: s.y });
+            gone = true;
+            break;
+          }
+        }
+      }
+      if (gone) this.webShots.splice(i, 1);
+    }
+  };
+
   World.prototype.step = function (dt, input) {
     var p = this.player, i, e, b;
     this.simTime += dt;
     if (this.movers.length) this.updateMovers();
+    if (this.webShots.length) this.updateWebShots(dt);
 
     // edge-triggered actions fire on exactly one sub-step
     var jumpPressed = this.pending.jump;

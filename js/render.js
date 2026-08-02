@@ -608,38 +608,37 @@
   }
 
   /* ---- enemies --------------------------------------------------------- */
-  /* The web landing, over about a third of a second.
+  /* The web landing, over about a fifth of a second.
    *
-   * The hit itself is still instant — this is presentation only, driven off
-   * `stuckAge`, which the enemy already tracks. It exists because an enemy
-   * that switches to "cocoon" between one frame and the next reads as a state
-   * change rather than as something you did to them. Now a strand snaps out
-   * from wherever you fired, and the wrapping closes over them from the
-   * middle outward. */
+   * The travelling belongs to the shot itself now (World.updateWebShots), so
+   * this picks up at the moment of arrival: the line snaps taut all the way
+   * back to where you fired and fades, while the wrapping closes over them
+   * from the middle outward. Animating the strand's flight here as well would
+   * play the same journey twice.
+   *
+   * Both phases run off `stuckAge`, which the enemy already tracks. They exist
+   * because an enemy that switches to "cocoon" between one frame and the next
+   * reads as a state change rather than as something you did to them. */
   function cocoonPhase(e) {
     var age = e.stuckAge;
     return {
-      fly: M.clamp(age / 0.07, 0, 1),           // strand reaching the target
-      wrap: M.clamp((age - 0.05) / 0.20, 0, 1)  // silk closing over them
+      snap: 1 - M.clamp(age / 0.12, 0, 1),  // the line back to the muzzle, fading
+      wrap: M.clamp(age / 0.20, 0, 1)       // silk closing over them
     };
   }
 
-  function drawWebStrand(ctx, e, fly) {
-    if (!e.webFrom || fly >= 1) return;
-    var tx = M.lerp(e.webFrom.x, e.cx(), fly);
-    var ty = M.lerp(e.webFrom.y, e.cy(), fly);
+  function drawWebStrand(ctx, e, a) {
+    if (!e.webFrom || a <= 0) return;
+    ctx.globalAlpha = a;
     ctx.strokeStyle = P.web;
     ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(e.webFrom.x, e.webFrom.y);
-    ctx.lineTo(tx, ty);
+    ctx.lineTo(e.cx(), e.cy());
     ctx.stroke();
     ctx.lineCap = 'butt';
-    ctx.fillStyle = P.cocoon;
-    ctx.beginPath();
-    ctx.arc(tx, ty, 4.5, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.globalAlpha = 1;
   }
 
   function drawCocoon(ctx, e, time) {
@@ -650,7 +649,7 @@
     var x = e.x - 3 + gx, y = e.y - 3 + gy;
     var w = e.w + 6 - gx * 2, h = e.h + 6 - gy * 2;
 
-    if (ph.wrap < 1) drawWebStrand(ctx, e, ph.fly);
+    if (ph.snap > 0) drawWebStrand(ctx, e, ph.snap);
     if (ph.wrap <= 0) return;
 
     if (Skin.has('enemy.cocoon')) {
@@ -831,6 +830,29 @@
       ctx.fillStyle = '#fff';
       ctx.fillRect(x - 2, y - 2 + bob, w + 4, h + 4);
       ctx.globalAlpha = 1;
+    }
+  }
+
+  /* Web-shots in flight: a glob with a short tail, so the direction and the
+   * speed both read while it is travelling. */
+  function drawWebShots(ctx, world, vis) {
+    var s, i, tx, ty;
+    for (i = 0; i < world.webShots.length; i++) {
+      s = world.webShots[i];
+      if (s.x < vis.x0 || s.x > vis.x1 || s.y < vis.y0 || s.y > vis.y1) continue;
+      tx = s.x - s.vx * 0.022; ty = s.y - s.vy * 0.022;
+      ctx.strokeStyle = 'rgba(242,247,255,0.55)';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(s.x, s.y);
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+      ctx.fillStyle = P.cocoon;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, C.WEB_SHOT_R * 0.7, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -1347,6 +1369,7 @@
       if (!visible(vis, e.box())) continue;
       drawEnemy(ctx, e, time, world);
     }
+    drawWebShots(ctx, world, vis);
     drawBullets(ctx, world, time, vis);
 
     FX.draw(ctx, vis);

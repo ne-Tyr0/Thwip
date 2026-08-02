@@ -126,8 +126,13 @@
     return best;
   };
 
+  /* Web-shots travel now, so aim where the target will be rather than where
+   * it is. The lead is small — these enemies move at 55-90px/s against a
+   * 1600px/s shot — but a shot already in flight is not re-fired, so getting
+   * it wrong wastes the cooldown. */
   Bot.prototype.enemyAhead = function () {
     var w = this.w, p = this.w.player, cx = p.cx(), cy = p.cy();
+    if (w.webShots && w.webShots.length) return null;      // one in flight already
     var targets = w.buildTargets();
     for (var i = 0; i < w.enemies.length; i++) {
       var e = w.enemies[i];
@@ -135,7 +140,9 @@
       var dx = e.cx() - cx, dy = e.cy() - cy, d = M.len(dx, dy);
       if (d > C.WEB_RANGE - 40 || dx < 40) continue;
       var hit = Ph.raycast(cx, cy, dx / d, dy / d, C.WEB_RANGE, targets);
-      if (hit && hit.target.ref === e) return { x: e.cx(), y: e.cy() };
+      if (!hit || hit.target.ref !== e) continue;          // blocked by geometry
+      var travel = d / (C.WEB_SHOT_SPEED || 1600);
+      return { x: e.cx() + (e.vx || 0) * travel, y: e.cy() };
     }
     return null;
   };

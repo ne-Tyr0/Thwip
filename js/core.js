@@ -89,6 +89,23 @@
     BULLET_LIFE: 4.0,
     STICK_SEARCH: 220,       // how far we look for a surface to pin an enemy to
 
+    /* The web-shot: fired at an enemy, this one travels.
+     *
+     * Anchors stay hitscan and must — mid-air re-thwip at up to WEB_RANGE is
+     * the core traversal tech, and travel time there would mean attaching to
+     * where you WERE. Enemies are different: webbing them was a free delete
+     * button, point-and-click with no way to miss something you could see,
+     * which is the one place the game's "aim is free, the cursor is the shot"
+     * promise did not actually cost anything.
+     *
+     * Deliberately fast. At 1600px/s the full 470px range takes 0.29s, and
+     * these enemies crawl — 90px/s for a grunt, 55 for armor, zero for a
+     * shooter — so the lead needed is 26px at worst. The change is about
+     * weight and the enemy getting a moment to close on you, not about
+     * turning it into a marksmanship test. */
+    WEB_SHOT_SPEED: 1600,
+    WEB_SHOT_R: 7,
+
     // camera
     VIEW_H: 470,
     CAM_LAG: 6.5,

@@ -672,6 +672,13 @@
           FX.cone(d.x, d.y, d.pad.dx, d.pad.dy, 26, 620, 0.45, 6, P.boost);
           FX.burst(d.x, d.y, 12, 260, 0.35, 5, '#fff3cf');
           break;
+        case 'websho':
+          Audio.play('websho');
+          break;
+        case 'websplat':
+          Audio.play('websplat');
+          FX.burst(d.x, d.y, 7, 150, 0.3, 4, P.cocoon, 'web');
+          break;
         case 'snap':
           Audio.play('snap');
           FX.burst(d.x, d.y, 16, 300, 0.45, 5, P.fuse, 'web');

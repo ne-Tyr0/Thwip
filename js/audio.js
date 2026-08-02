@@ -170,6 +170,16 @@
       osc('square', 420, 900, t, 0.05, 0.06);
     },
     slide: function (t) { noise(t, 0.18, 0.05, 'bandpass', 2200, 1500, 1.6); },
+    // the shot leaving the wrist: drier and shorter than the rope thwip, so
+    // the two uses of the same button are audibly different
+    websho: function (t) {
+      noise(t, 0.06, 0.14, 'bandpass', 4200, 1600, 1.1);
+      osc('square', 900, 420, t, 0.05, 0.08);
+    },
+    websplat: function (t) {
+      noise(t, 0.09, 0.10, 'lowpass', 2000, 600, 0.7);
+      osc('sine', 220, 90, t, 0.08, 0.07);
+    },
     // launch pad: a rising whoop with a thump underneath
     boost: function (t) {
       osc('sawtooth', 260, 1500, t, 0.16, 0.20);

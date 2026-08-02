@@ -145,12 +145,16 @@ function run(w) {
     if (d.world.state !== 'playing') throw new Error('did not restart');
   });
 
-  guard('webbed enemy / cocoon', function () {
+  guard('web-shot / cocoon', function () {
     d.play('gauntlet', 'classic');
     var wd = d.world, e = wd.enemies.filter(function (x) { return x.webbable; })[0];
     wd.player.x = e.cx() - 120; wd.player.y = e.cy();
     wd.fire(e.cx(), e.cy());
-    step(w, 20);
+    if (!wd.webShots.length) throw new Error('no web-shot launched');
+    step(w, 4);                                  // drawn while in flight
+    step(w, 30);
+    if (!e.stuck) throw new Error('the shot never landed');
+    step(w, 20);                                 // and drawn while it wraps
   });
 
   guard('tower summit + altitude results', function () {

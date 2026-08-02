@@ -14,6 +14,7 @@
  *   node tools/simtest.js              everything
  *   node tools/simtest.js fast         one mode
  *   node tools/simtest.js big spire    one map
+ *   node tools/simtest.js mech         rules and layout only, no map runs
  */
 'use strict';
 var fs = require('fs'), path = require('path'), vm = require('vm');
@@ -250,6 +251,10 @@ function mechanics() {
       p.y = e.cy() - p.h * 0.5;
       var before = { x: e.x, y: e.y };
       w.fire(e.cx(), e.cy());
+      /* The shot travels now, so let it arrive. 120px at 1600px/s is about
+       * 0.08s; stepping a quarter second is generous and still fails fast if
+       * the web never lands at all. */
+      for (var fr = 0; fr < 30 && w.webShots.length; fr++) w.tick(1 / 60, idle);
       if (e.webbable) {
         ok(e.stuck, 'L' + (li + 1) + ' ' + e.type + ' @' + Math.round(e.cx()) + ' did not stick');
         ok(e.stuckDir !== 'air' || e.strand,
@@ -407,6 +412,94 @@ function mechanics() {
       'the rope anchor should travel with the ring it is tied to');
   }
 
+  /* Web-shots must be genuinely travelling objects, not hitscan with a
+   * delay. Three properties: they take time, they can be dodged, and they
+   * stop at geometry.
+   *
+   * Rather than hardcoding an enemy index — which a level edit would quietly
+   * invalidate into a vacuous pass — find a target with a clear horizontal
+   * lane at the requested range and stand off from it. */
+  function firingLine(dist) {
+    var w = new T.World('gauntlet', 'classic');
+    for (var i = 0; i < w.enemies.length; i++) {
+      var e = w.enemies[i];
+      if (!e.webbable) continue;
+      for (var s = -1; s <= 1; s += 2) {
+        var t = new T.World('gauntlet', 'classic'), et = t.enemies[i];
+        t.enemies.forEach(function (o) { if (o !== et) o.stuck = true; });
+        t.player.x = et.cx() + s * dist - t.player.w * 0.5;
+        t.player.y = et.cy() - t.player.h * 0.5;
+        var ray = Ph.raycast(t.player.cx(), t.player.cy(), -s, 0, C.WEB_RANGE, t.buildTargets());
+        if (ray && ray.target.kind === 'enemy' && ray.target.ref === et) {
+          return { world: t, enemy: et };
+        }
+      }
+    }
+    return null;
+  }
+
+  var line = firingLine(400);
+  ok(!!line, 'the test needs one webbable enemy with a clear 400px lane');
+  if (line) {
+    var w11 = line.world, tgt = line.enemy;
+    w11.fire(tgt.cx(), tgt.cy());
+    ok(w11.webShots.length === 1, 'firing at an enemy should launch a web-shot');
+    ok(!tgt.stuck, 'a web-shot must not resolve on the frame it is fired');
+    var flightFrames = 0;
+    while (w11.webShots.length && flightFrames < 60) { w11.tick(1 / 60, idle); flightFrames++; }
+    ok(tgt.stuck, 'the web-shot should land and stick the enemy');
+    ok(flightFrames > 1, 'the shot should take more than one frame to cross 400px');
+  }
+
+  // a target that moves out of the line genuinely dodges it
+  var line2 = firingLine(430);
+  if (line2) {
+    var w12 = line2.world, duck = line2.enemy;
+    w12.fire(duck.cx(), duck.cy());
+    ok(w12.webShots.length === 1, 'the dodge test needs a shot in the air');
+    duck.y -= 260;                                 // step out of the line of fire
+    for (f = 0; f < 60 && w12.webShots.length; f++) w12.tick(1 / 60, idle);
+    ok(!duck.stuck, 'a target that leaves the line should not be hit');
+  }
+
+  /* A flat shot along a rooftop must not eat the rooftop. The ray that
+   * classifies the click is a point ray that threads just over the deck; if
+   * the shot flies with a fat hull it clips the deck a pixel below the muzzle
+   * and the game swallows a shot it just promised would connect. */
+  var w14 = new T.World('gauntlet', 'classic');
+  var mate = w14.enemies.filter(function (x) { return x.webbable; })[0];
+  w14.enemies.forEach(function (o) { if (o !== mate) o.stuck = true; });
+  w14.player.x = mate.cx() - 120;
+  w14.player.y = mate.cy();                        // standing low, firing flat
+  ok(w14.fire(mate.cx(), mate.cy()), 'a point-blank flat shot should launch');
+  for (f = 0; f < 40 && w14.webShots.length; f++) w14.tick(1 / 60, idle);
+  ok(mate.stuck, 'a flat shot along a deck should reach the enemy on it');
+
+  /* and it stops at scenery rather than passing through it. fire() can never
+   * produce this case on its own — the raycast that classifies the click
+   * already proved the lane was clear — so drive the collision path directly,
+   * the way a mover closing across a live shot would. */
+  var w13 = new T.World('gauntlet', 'classic');
+  var deck = w13.solids.filter(function (s) {
+    return s.y > w13.player.cy() && s.x < w13.player.cx() && s.x + s.w > w13.player.cx();
+  })[0];
+  ok(!!deck, 'the spawn should have a deck under it to shoot at');
+  if (deck) {
+    var splat = 0;
+    w13.webShots.push({
+      x: w13.player.cx(), y: w13.player.cy(),
+      vx: 0, vy: C.WEB_SHOT_SPEED, from: { x: w13.player.cx(), y: w13.player.cy() },
+      life: (C.WEB_RANGE * 1.15) / C.WEB_SHOT_SPEED
+    });
+    for (f = 0; f < 60 && w13.webShots.length; f++) {
+      w13.tick(1 / 60, idle);
+      splat += w13.events.filter(function (ev) { return ev.type === 'websplat'; }).length;
+      w13.events.length = 0;
+    }
+    ok(!w13.webShots.length, 'a web-shot should not survive hitting geometry');
+    ok(splat === 1, 'hitting geometry should splat exactly once');
+  }
+
   // fuse rings snap under load, then come back
   var w10 = new T.World('snapdecision', 'fast');
   var fr = w10.level.anchors.filter(function (x) { return x.fuse; })[0];
@@ -430,7 +523,7 @@ console.log('THWIP headless sim — ' + T.Modes.list.length + ' modes, ' +
   T.Modes.list.reduce(function (n, m) { return n + m.levels.length; }, 0) + ' map slots\n');
 
 T.Modes.list.forEach(function (mode) {
-  if (onlyMode && mode.id !== onlyMode) return;
+  if (onlyMode && mode.id !== onlyMode) return;   // 'mech' matches no mode: rules only
   console.log('== ' + mode.name + '  (fail=' + mode.fail + ' slowmo=' + mode.slowmo +
     ' wall=' + (mode.wallJump ? 'yes' : 'no') + ' score=' + mode.scoring + ')');
   mode.levels.forEach(function (id) {
@@ -457,10 +550,11 @@ var lay = onlyLevel ? [] : layout();
 console.log('layout:    ' + (lay.length ? lay.length + ' FAILED' : 'geometry, spawns, pars and tower ladders all OK'));
 lay.forEach(function (m) { console.log('   !! ' + m); });
 
-var mech = onlyMode && onlyMode !== 'all' ? [] : mechanics();
-if (!onlyMode) {
+var wantMech = !onlyMode || onlyMode === 'all' || onlyMode === 'mech';
+var mech = wantMech ? mechanics() : [];
+if (wantMech) {
   console.log('mechanics: ' + (mech.length ? mech.length + ' FAILED'
-    : 'thwip / stick / whiff / release / slow-mo / meter / death / towers / kicks / pads / movers / fuses all OK'));
+    : 'thwip / web-shots / stick / whiff / release / slow-mo / meter / death / towers / kicks / pads / movers / fuses all OK'));
   mech.forEach(function (m) { console.log('   !! ' + m); });
 }
 
