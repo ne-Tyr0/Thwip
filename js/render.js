@@ -1396,8 +1396,11 @@
      * do. When they disagree, the gap is drawn. */
     var ax = aim.x == null ? aim.wx : aim.x;
     var ay = aim.y == null ? aim.wy : aim.y;
-    var dx = aim.wx - p.cx(), dy = aim.wy - p.cy();
-    var d = M.len(dx, dy) || 1;
+    /* Range is judged on the assisted point too, not the cursor. Aim past an
+     * anchor with assist on and the cursor is out of range while the shot is
+     * not: greying the crosshair there would report "too far" about a web that
+     * would have connected. */
+    var d = M.len(ax - p.cx(), ay - p.cy()) || 1;
     var inRange = d <= C.WEB_RANGE;
     var hit = world.previewShot(ax, ay);
     var col = !inRange ? 'rgba(233,237,255,0.3)'

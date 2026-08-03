@@ -5,13 +5,14 @@
   "description": "2D web-swinging speedrun platformer, with lockstep LAN multiplayer",
   "scripts": {
     "start": "node net/server.js",
-    "test": "node tools/simtest.js && node tools/dettest.js && node tools/aimtest.js && node tools/nettest.js",
+    "test": "node tools/pagecheck.js && node tools/simtest.js && node tools/dettest.js && node tools/aimtest.js && node tools/nettest.js",
     "test:sim": "node tools/simtest.js",
     "test:determinism": "node tools/dettest.js",
     "test:net": "node tools/nettest.js",
     "test:aim": "node tools/aimtest.js",
     "test:engine": "node tools/enginetest.js",
-    "peer": "node tools/peer.js"
+    "peer": "node tools/peer.js",
+    "test:pages": "node tools/pagecheck.js"
   },
   "dependencies": {
     "ws": "^8.21.1"

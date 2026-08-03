@@ -239,6 +239,45 @@ ok('enemies are never acquired', (function () {
     Aim.REF_CONE === Aim.LEVELS[Aim.LEVELS.length - 1].cone,
     'normalising by the active cone would score the most cautious setting hardest');
 
+  /* Clicks are not shots. Every press that the simulation refuses would
+   * otherwise land in the denominator and make the run read cleaner than it
+   * was — the wrong direction for this number to be wrong in. */
+  var gw = world('skyline', 'classic', { seed: 5 });
+  var gp = gw.player;
+  ok('a live player with no cooldown would fire', Aim.wouldFire(gw, gp));
+
+  gp.missCd = C.WEB_MISS_CD;
+  ok('a click during the miss cooldown is not a shot', !Aim.wouldFire(gw, gp));
+  gp.missCd = 0;
+
+  gp.stun = 1;
+  ok('a click while stunned is not a shot', !Aim.wouldFire(gw, gp));
+  gp.stun = 0;
+
+  var was = gw.state;
+  gw.state = 'countdown';
+  ok('a click before the round starts is not a shot', !Aim.wouldFire(gw, gp));
+  gw.state = 'dead';
+  ok('a click while dead is not a shot', !Aim.wouldFire(gw, gp));
+  gw.state = was;
+  ok('and it is a shot again once play resumes', Aim.wouldFire(gw, gp));
+
+  ok('billing clicks instead of shots would understate reliance', (function () {
+    /* The same run twice: ten shots that were all fully assisted. The naive
+     * tally also counts sixty presses the game refused — a cooldown mash — and
+     * that alone walks the run from ASSISTED down to GUIDED without a single
+     * different web being fired. */
+    var honest = new Aim.Tracker(), naive = new Aim.Tracker();
+    honest.note(3); naive.note(3);
+    for (var i = 0; i < 10; i++) {
+      honest.shot({ correction: Aim.REF_CONE, reliance: 1 });
+      naive.shot({ correction: Aim.REF_CONE, reliance: 1 });
+    }
+    for (i = 0; i < 60; i++) naive.shot({ correction: 0, reliance: 0 });
+    return honest.tier() === 'ASSISTED' && naive.tier() === 'GUIDED' &&
+      honest.use() === 1 && naive.use() < 0.15;
+  })(), 'the same run must not drop a tier just because the player mashed');
+
   ok('the tiers rank in the order the results screen relies on',
     Aim.rank('CLEAN') > Aim.rank('SHARP') &&
     Aim.rank('SHARP') > Aim.rank('GUIDED') &&

@@ -585,6 +585,7 @@ node tools/simtest.js fast         # one mode
 node tools/simtest.js big spire    # one map
 node tools/dettest.js              # is the simulation deterministic?
 node tools/aimtest.js              # aim assist: helps, never lies, never desyncs
+node tools/pagecheck.js            # do the HTML pages still load what they need?
 node tools/nettest.js              # two real clients through a real relay
 node tools/peer.js                 # join a live relay as a headless player
 node tools/enginetest.js           # does a browser agree with node, bit for bit?

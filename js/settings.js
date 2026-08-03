@@ -68,7 +68,10 @@
     hints: { kind: 'bool', def: true, label: 'LEVEL HINTS', help: 'The tip that fades in at the start of a map.' },
     aimAssist: {
       kind: 'pick', def: 0, label: 'AIM ASSIST',
-      opts: [[0, 'OFF'], [1, 'LIGHT'], [2, 'STANDARD'], [3, 'FULL']],
+      /* Built from js/aim.js rather than written out again. Two hand-kept
+       * copies of the same four names is a menu that eventually lies about
+       * what the game is doing. */
+      opts: T.Aim.LEVELS.map(function (l) { return [l.id, l.name]; }),
       help: 'Bends a near-miss web toward an anchor you could really have hit. ' +
         'Never toward enemies, and never through a wall. Runs are scored on how ' +
         'much you LEANED on it, not on this setting — aim true on FULL and the ' +

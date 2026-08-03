@@ -12,6 +12,16 @@ font:12px monospace}#game{display:block;width:1280px;height:720px}
 <button id="btnNext"></button><button id="btnRetry"></button><button id="btnMenu"></button></div></div>
 <pre id="out">running</pre>
 <script src="../js/core.js"></script>
+<!-- The same set index.html loads, in the same order, and it has to stay that
+     way: world.js needs Trig and Hash, settings.js reads the aim assist scale
+     out of aim.js, and main.js needs Proto, the match rules and Ghost. Miss one
+     and this page dies on load having measured nothing.
+
+     net/ is deliberately NOT here. main.js guards every T.Lobby call, and
+     lobby.js wires itself to lobby DOM this page does not have. tools/pagecheck.js
+     knows that, and will tell you if anything else drifts. -->
+<script src="../js/trig.js"></script>
+<script src="../js/aim.js"></script>
 <script src="../js/settings.js"></script>
 <script src="../assets/manifest.js"></script>
 <!-- this page lives in tools/, so the manifest's relative base has to be
@@ -35,7 +45,14 @@ if (window.THWIP && window.THWIP.SKIN) {
 <script src="../js/levels-fast.js"></script>
 <script src="../js/levels-big.js"></script>
 <script src="../js/modes.js"></script>
+<script src="../js/hash.js"></script>
+<script src="../net/protocol.js"></script>
+<script src="../modes/match.js"></script>
+<script src="../modes/solo.js"></script>
+<script src="../modes/coop.js"></script>
+<script src="../modes/versus.js"></script>
 <script src="../js/world.js"></script>
+<script src="../js/ghost.js"></script>
 <script src="../js/audio.js"></script>
 <script src="../js/render.js"></script>
 <script src="../js/main.js"></script>

@@ -56,10 +56,10 @@
    * top of the scale by design: it is there so that someone who cannot reliably
    * click a moving target can still play the game, not as the way to play it. */
   var LEVELS = [
-    { id: 0, name: 'OFF', cone: 0, pull: 0, blurb: 'Free aim. Nothing is corrected.' },
-    { id: 1, name: 'LIGHT', cone: 4 * DEG, pull: 0.5, blurb: 'Halves a near miss. You can still miss.' },
-    { id: 2, name: 'STANDARD', cone: 8 * DEG, pull: 0.85, blurb: 'Most near misses land.' },
-    { id: 3, name: 'FULL', cone: 14 * DEG, pull: 1, blurb: 'Snaps to the best anchor in a wide cone.' }
+    { id: 0, name: 'OFF', cone: 0, pull: 0 },
+    { id: 1, name: 'LIGHT', cone: 4 * DEG, pull: 0.5 },
+    { id: 2, name: 'STANDARD', cone: 8 * DEG, pull: 0.85 },
+    { id: 3, name: 'FULL', cone: 14 * DEG, pull: 1 }
   ];
 
   /* Corrections are measured against ONE fixed reference — the widest cone on
@@ -79,8 +79,6 @@
     if (d < -Math.PI) d += Math.PI * 2;
     return d;
   }
-
-  var NONE = { x: 0, y: 0, target: null, correction: 0, reliance: 0, pulled: false };
 
   function raw(x, y) {
     return { x: x, y: y, target: null, correction: 0, reliance: 0, pulled: false };
@@ -120,7 +118,7 @@
 
       /* Would the game actually give us this anchor? Ask it, rather than
        * assuming — a ring behind a wall is in the cone and is not a shot. */
-      if (!reaches(world, p, cx, cy, ax, ay, a.ref)) continue;
+      if (!reaches(world, p, ax, ay, a.ref)) continue;
 
       if (err < bestErr) { bestErr = err; best = { x: ax, y: ay, ref: a.ref, err: err }; }
       if (prev && a.ref === prev) { prevErr = err; prevPick = { x: ax, y: ay, ref: a.ref, err: err }; }
@@ -155,9 +153,28 @@
   /* Does a shot at (ax,ay) really land on this anchor? previewShot has no side
    * effects and is the same call the reticle makes, so assist and the crosshair
    * can never disagree about what a click would do. */
-  function reaches(world, p, cx, cy, ax, ay, ref) {
+  function reaches(world, p, ax, ay, ref) {
     var hit = world.previewShot(ax, ay, p);
     return !!(hit && hit.kind === 'anchor' && hit.ref === ref);
+  }
+
+  /* Would a click right now actually put a web in the air?
+   *
+   * This mirrors the gate the simulation applies before calling fire(), and it
+   * exists so the reliance tally counts SHOTS rather than CLICKS. Billing every
+   * mouse-down would fold in presses during the countdown, presses while dead,
+   * and the mash on the miss cooldown — none of which fire anything. All of
+   * them land in the denominator, and every one of them makes a run look
+   * cleaner than it was, which is the wrong direction for this number to be
+   * wrong in.
+   *
+   * In a match this reads a world a few ticks behind the tick the input is
+   * being sent for, so a press in the exact frame a cooldown expires can still
+   * be miscounted by one. The states that actually repeat — countdown, dead,
+   * cooling down — all last far longer than the input buffer. */
+  function wouldFire(world, p) {
+    return !!(world && p && world.state === 'playing' && p.active() &&
+      p.missCd <= 0 && p.stun <= 0);
   }
 
   /* ---- the accounting --------------------------------------------------
@@ -220,21 +237,16 @@
     };
   };
 
-  var TIERS = {
-    CLEAN: { rank: 3, blurb: 'no assist at all' },
-    SHARP: { rank: 2, blurb: 'assist on, barely used' },
-    GUIDED: { rank: 1, blurb: 'a little help' },
-    ASSISTED: { rank: 0, blurb: 'assisted' }
-  };
+  /* Cleanest first. showResults compares against SHARP to decide whether a run
+   * may take the clean best, so the ORDER here is load-bearing, not decoration. */
+  var RANK = { CLEAN: 3, SHARP: 2, GUIDED: 1, ASSISTED: 0 };
 
   T.Aim = {
     LEVELS: LEVELS,
-    TIERS: TIERS,
     REF_CONE: REF_CONE,
-    levelAt: levelAt,
     solve: solve,
+    wouldFire: wouldFire,
     Tracker: Tracker,
-    none: NONE,
-    rank: function (tier) { return TIERS[tier] ? TIERS[tier].rank : 0; }
+    rank: function (tier) { return RANK[tier] || 0; }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

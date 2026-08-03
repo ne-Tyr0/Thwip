@@ -99,7 +99,6 @@
     var v = parseFloat(read(k('cleanbest', modeId, levelId)));
     return isFinite(v) && v > 0 ? v : null;
   }
-  function getBestTier(modeId, levelId) { return read(k('besttier', modeId, levelId)); }
   function getAlt(levelId) {
     var v = parseFloat(read('thwip.alt.' + levelId));
     return isFinite(v) && v > 0 ? v : 0;
@@ -129,6 +128,22 @@
       }
     });
     write('thwip.migrated.modes', '1');
+  })();
+
+  /* Every best set before aim assist existed was, by definition, set without
+   * it. Seeding the clean best from it once keeps a returning player's history
+   * intact — otherwise their clean column reads empty on maps they cleared
+   * honestly long before the feature shipped, which is the exact opposite of
+   * what it is for. */
+  (function migrateClean() {
+    if (read('thwip.migrated.clean')) return;
+    T.Modes.list.forEach(function (mode) {
+      mode.levels.forEach(function (id) {
+        var b = read(k('best', mode.id, id));
+        if (b && !read(k('cleanbest', mode.id, id))) write(k('cleanbest', mode.id, id), b);
+      });
+    });
+    write('thwip.migrated.clean', '1');
   })();
 
   /* ---- screens ----------------------------------------------------------
@@ -541,14 +556,21 @@
         : tier === 'GUIDED' ? P.ink : 'rgba(233,237,255,0.55)';
   }
 
-  function assistRows(a, isCleanPb, cleanBest) {
-    if (!a || (!a.level && !a.helped)) return '';
-    var out = row('AIM ASSIST', a.tier, tierColor(a.tier));
-    if (a.level) {
-      out += row('ASSIST RELIANCE', (a.use * 100).toFixed(1) + '%   ' +
-        '(' + a.helped + ' of ' + a.shots + ' shots)');
+  function assistRows(a, isCleanPb, cleanBest, best) {
+    var out = '';
+    if (a && (a.level || a.helped)) {
+      out += row('AIM ASSIST', a.tier, tierColor(a.tier));
+      if (a.level) {
+        out += row('ASSIST RELIANCE', (a.use * 100).toFixed(1) + '%   ' +
+          '(' + a.helped + ' of ' + a.shots + ' shots)');
+      }
     }
-    if (cleanBest) {
+    /* The clean best stands on its own, and deliberately not behind the check
+     * above: the run most worth showing it on is a CLEAN one, which reports no
+     * assist rows at all and is exactly the run that just moved this number.
+     * Hidden while it matches the outright best, since for anyone who has never
+     * touched assist that would be the same time twice on every clear. */
+    if (cleanBest && (isCleanPb || !best || Math.abs(cleanBest - best) > 0.005)) {
       out += row('CLEAN BEST', M.fmtTime(cleanBest) + (isCleanPb ? '  ★' : ''),
         isCleanPb ? P.gold : P.ink);
     }
@@ -577,7 +599,6 @@
     if (isPb) {
       write(k('best', mode.id, id), t);
       write(k('grade', mode.id, id), g);
-      write(k('besttier', mode.id, id), assist ? assist.tier : 'CLEAN');
       /* The ghost is saved with the personal best, because a ghost is the
        * personal best — the input stream that produced it, ready to be run
        * again. Nothing about the run's positions is stored; the next attempt
@@ -618,7 +639,7 @@
     }
 
     var rows = row('BEST', M.fmtTime(isPb ? t : prev));
-    rows += assistRows(assist, isCleanPb, isCleanPb ? t : prevClean);
+    rows += assistRows(assist, isCleanPb, isCleanPb ? t : prevClean, isPb ? t : prev);
     if (mode.scoring === 'medals') {
       rows += row('MEDAL', medal || 'NONE', medalColor(medal) || P.ink);
       rows += row('DEATHS', world.deaths, world.deaths ? P.hazard : P.ink);
@@ -796,7 +817,9 @@
        * moment worth counting. */
       if (aimStats) {
         aimStats.note(assistLevel());
-        if (input.firePressed) aimStats.shot(aim.res);
+        if (input.firePressed && T.Aim.wouldFire(world, world.player)) {
+          aimStats.shot(aim.res);
+        }
       }
     }
     var packed = Proto.pack(input);
