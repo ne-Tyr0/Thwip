@@ -4,12 +4,7 @@
  *   node tools/trace.js lobby 60 big 30
  * levelId also accepts a plain number, for the original three. */
 'use strict';
-var fs = require('fs'), path = require('path'), vm = require('vm');
-var JS = path.join(__dirname, '..', 'js');
-['core', 'physics', 'player', 'enemies', 'levels', 'levels-fast', 'levels-big',
-  'modes', 'world'].forEach(function (f) {
-  vm.runInThisContext(fs.readFileSync(path.join(JS, f + '.js'), 'utf8'), { filename: f + '.js' });
-});
+require('./load.js')();
 var T = globalThis.THWIP, M = T.M;
 (function () { var s = 12345; Math.random = function () { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; }; })();
 

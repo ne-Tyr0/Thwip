@@ -23,9 +23,23 @@
 })(typeof window !== 'undefined' ? window : globalThis, function makeBot(T) {
   var C = T.C, M = T.M, Ph = T.Physics;
 
+  /* The bot reads the world through `this.w.player`, which is the local view
+   * and therefore the wrong body for every slot but one. Rather than thread a
+   * player through thirty call sites, hand it a world whose only difference is
+   * which player it points at: reads fall through to the real world, so the
+   * bot sees the same geometry, enemies and targets as everyone else. One
+   * autopilot per body, all of them looking at one simulation. */
+  function viewOf(world, player) {
+    if (!player || player === world.player) return world;
+    var v = Object.create(world);
+    v.player = player;
+    return v;
+  }
+
   function Bot(world, opts) {
-    this.w = world;
-    this.opts = opts || {};
+    opts = opts || {};
+    this.w = viewOf(world, opts.player);
+    this.opts = opts;
     this.vertical = world.level.axis === 'y';
     this.releaseAngle = this.vertical ? 0.95 : 0.42;
     this.idealRope = this.vertical ? 250 : 300;
@@ -52,8 +66,16 @@
     var p = this.w.player;
     this.attempt = (this.attempt || 0) + 1;
     var k = this.attempt;
-    this.releaseAngle = (this.vertical ? 0.95 : 0.42) + ((k * 0.137) % 0.34) - 0.15;
-    this.idealRope = (this.vertical ? 250 : 300) + ((k * 53) % 130) - 65;
+    /* Spread the retries with a golden-ratio sequence rather than a modulo
+     * one. The old `(k * 0.137) % 0.34` revisited nearly the same handful of
+     * lines every few attempts, so a map the bot could only clear from an
+     * unusual angle depended on that angle happening to be in the short cycle.
+     * This walks the whole range without ever repeating, and is still a pure
+     * function of the attempt number, so runs stay reproducible. */
+    var g1 = (k * 0.61803398874989) % 1;
+    var g2 = (k * 0.75487766624669) % 1;
+    this.releaseAngle = (this.vertical ? 0.95 : 0.42) + (g1 - 0.5) * 0.44;
+    this.idealRope = (this.vertical ? 250 : 300) + (g2 - 0.5) * 150;
     this.best = this.vertical ? p.cy() : p.cx();
     this.noProgress = 0;
     this.stuckFor = 0;
@@ -63,6 +85,7 @@
     this.shaftFromX = 0;
     this.shaftFromY = 0;
     this.backing = 0;
+    this.wantRelease = false;
     this.avoid.length = 0;
   };
 
@@ -250,6 +273,16 @@
     return false;
   };
 
+  /* The one rule this autopilot must obey: it may READ the world and it may
+   * not WRITE to it. It stands in for a pair of hands, and hands only produce
+   * inputs.
+   *
+   * It used to cheat here — a couple of branches poked `web.hold` forward so a
+   * rope younger than HOLD_RELEASE_MIN would let go on demand. Harmless in a
+   * single-player test and invisible for months, and then in a match it is a
+   * desync: every client runs an autopilot for its OWN body, so each one was
+   * quietly editing its own copy of a shared world. The bots now live with the
+   * same release rule the player does. */
   Bot.prototype.input = function (dt) {
     var p = this.w.player;
     dt = dt || 1 / 60;
@@ -264,6 +297,16 @@
       firePressed: false, fireReleased: false, slowHeld: false,
       aimX: p.cx() + 200, aimY: p.cy() - 200
     };
+
+    /* Letting go is a request, not a guarantee: the world ignores a release on
+     * a rope younger than HOLD_RELEASE_MIN, which is what stops a tap from
+     * being a release. So the intent is held and re-asserted until the rope is
+     * actually gone. This is the honest version of what this used to do, which
+     * was to reach into the world and age the rope by hand. */
+    if (this.wantRelease) {
+      if (p.web) inp.fireReleased = true;
+      else this.wantRelease = false;
+    }
     var self = this;
     function shoot(t) {
       inp.aimX = t.x; inp.aimY = t.y; inp.firePressed = true;
@@ -285,10 +328,7 @@
       if (p.cx() > this.shaftFromX + 130) this.shafting = false;
       else if (this.shaftTime > 7) { this.shafting = false; this.shaftCd = 6; }
       else {
-        if (p.web) {
-          inp.fireReleased = true;
-          if (p.web.hold <= C.HOLD_RELEASE_MIN) p.web.hold = C.HOLD_RELEASE_MIN + 0.01;
-        }
+        if (p.web) { inp.fireReleased = true; this.wantRelease = true; }
         return this.shaftInput(inp);
       }
     }
@@ -300,6 +340,17 @@
 
     if (!this.shafting && this.shaftCd <= 0 && this.noProgress > 0.5 &&
         this.tallBlockAhead() && this.bothWalls()) {
+      /* Drop the rope BEFORE committing to the climb, not during it. A taut
+       * rope re-derives the body's position from the pendulum every step and
+       * the wall probe is skipped entirely while attached, so kicking off a
+       * wall with a web still out does nothing at all — the bot just swings
+       * around the chimney it is trying to climb. Ask, wait for it to let go,
+       * and start the climb on the tick the rope is actually gone. */
+      if (p.web) {
+        inp.fireReleased = true;
+        this.wantRelease = true;
+        return inp;
+      }
       this.shafting = true;
       this.shaftTime = 0;
       this.shaftFromX = p.cx();
@@ -315,10 +366,7 @@
     if (this.backing > 0) {
       this.backing -= dt;
       inp.right = false; inp.left = true;
-      if (p.web) {
-        inp.fireReleased = true;
-        if (p.web.hold <= C.HOLD_RELEASE_MIN) p.web.hold = C.HOLD_RELEASE_MIN + 0.01;
-      }
+      if (p.web) { inp.fireReleased = true; this.wantRelease = true; }
       return inp;
     }
     /* A wall ahead earns a shorter fuse, because grinding against a face is
@@ -354,7 +402,7 @@
       inp.jumpPressed = true;
       if (p.web) {
         inp.fireReleased = true;
-        if (p.web.hold <= C.HOLD_RELEASE_MIN) p.web.hold = C.HOLD_RELEASE_MIN + 0.01;
+        this.wantRelease = true;
         this.avoid.push({ ref: p.web.ref, t: 5 });
       }
       return inp;
@@ -409,7 +457,7 @@
      * balcony and going again is a legitimate move rather than a failure. */
     if (this.noProgress > 6 && p.web) {
       inp.fireReleased = true;
-      if (p.web.hold <= C.HOLD_RELEASE_MIN) p.web.hold = C.HOLD_RELEASE_MIN + 0.01;
+      this.wantRelease = true;
       this.avoid.push({ ref: p.web.ref, t: 5 });
       this.noProgress = 0;
       return inp;
@@ -428,6 +476,7 @@
       // a rung that leaves us hanging dead-centre is a rung to give up on
       if (web.hold > 4.5) {
         inp.fireReleased = true;
+        this.wantRelease = true;
         this.avoid.push({ ref: web.ref, t: 6 });
       }
       var nx = this.pickUp();

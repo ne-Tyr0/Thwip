@@ -5,8 +5,51 @@
   'use strict';
 
   var C = {
-    // fixed simulation step; everything below is tuned against this
+    /* ---- the clock -------------------------------------------------------
+     * DT is the physics sub-step and everything below is tuned against it.
+     * TICK is the unit the game actually advances in: one tick is SUBSTEPS
+     * sub-steps, and nothing may ever advance by anything else.
+     *
+     * The split exists for lockstep. A tick is the quantum every client
+     * agrees on — one input set in, one identical state out — so it wants to
+     * be as coarse as the network can stand (60Hz, one packet a tick). The
+     * physics wants the opposite: 120Hz, because that is what the pendulum
+     * and the sweep were tuned at and halving the rate changes how the game
+     * feels. Running two 1/120 sub-steps per 1/60 tick gives both. */
     DT: 1 / 120,
+    SUBSTEPS: 2,
+    TICK_HZ: 60,
+    TICK_DT: 1 / 60,
+
+    /* Ticks of input delay in a networked match. Every client runs tick N
+     * with inputs everyone sent at tick N-DELAY, so a few milliseconds of LAN
+     * jitter costs nothing; only a stall longer than this stalls the sim. */
+    NET_DELAY: 3,
+    NET_PORT: 8787,
+    NET_HASH_EVERY: 12,      // ticks between checksum exchanges
+    NET_TIMEOUT: 8,          // seconds of silence before the relay drops a peer
+
+    /* Most ticks the background-tab fallback may simulate in one wake-up (see
+     * keepUp in net/client.js). A hidden tab has its timers throttled to about
+     * 1Hz, so a wake legitimately owes a second of ticks and anything near a
+     * single frame's worth would run the room in slow motion. This bounds the
+     * lurch when a suspended laptop resumes; it is not a rate limit. */
+    NET_CATCHUP_MAX: 120,
+
+    // Match pacing, in ticks. Both are part of the simulation: every client
+    // counts them down off the same tick stream, so nobody needs to be told
+    // when the round starts.
+    COUNTDOWN_TICKS: 180,    // 3s of "GET READY" before a round runs
+    INTERMISSION_TICKS: 240, // 4s on the round-over card before the next one
+
+    // Versus: a round cannot run forever, or one player standing still holds
+    // the whole lobby hostage. Unfinished runs are marked DNF at the limit.
+    ROUND_LIMIT: 240,        // sim seconds
+    DNF_TIME: 300,           // what a DNF contributes to a cumulative total
+
+    // Co-op: how hard players shove each other apart on contact.
+    BUMP_PUSH: 260,          // exchanged speed, px/s
+    BUMP_SLACK: 170,         // a shove harder than this knocks a taut rope slack
 
     GRAVITY: 2200,
     TERMINAL_VY: 1500,
@@ -172,6 +215,26 @@
         return s / 4294967296;
       };
     },
+
+    /* The same generator with its state on the outside, for anything inside
+     * the simulation. Math.random() cannot appear below this line: two clients
+     * running the same inputs have to produce the same world, and a global
+     * generator is shared mutable state that drifts the moment one of them
+     * draws from it a different number of times. Every consumer owns a Rand
+     * seeded from something stable instead. */
+    Rand: function (seed) {
+      this.s = (seed >>> 0) || 1;
+    },
+
+    /* Mix two integers into a seed. Used to give each entity its own stream
+     * from the match seed plus its index, so nothing depends on the order the
+     * entities happen to be created or reset in. */
+    seedOf: function (a, b) {
+      var h = (a >>> 0) ^ 0x9e3779b9;
+      h = Math.imul(h ^ (b >>> 0), 0x85ebca6b) >>> 0;
+      h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+      return (h ^ (h >>> 16)) >>> 0 || 1;
+    },
     fmtTime: function (t) {
       if (t == null || !isFinite(t)) return '--:--.--';
       var neg = t < 0; t = Math.abs(t);
@@ -182,6 +245,17 @@
         (s < 10 ? '0' : '') + s + '.' + (cs < 10 ? '0' : '') + cs;
     }
   };
+
+  M.Rand.prototype.next = function () {
+    var s = this.s;
+    s ^= s << 13; s >>>= 0;
+    s ^= s >> 17;
+    s ^= s << 5; s >>>= 0;
+    this.s = s;
+    return s;
+  };
+  M.Rand.prototype.float = function () { return this.next() / 4294967296; };
+  M.Rand.prototype.range = function (a, b) { return a + (b - a) * this.float(); };
 
   global.THWIP = global.THWIP || {};
   /* One place for the UI typeface. skin.js prepends a custom family here and

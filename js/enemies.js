@@ -11,7 +11,12 @@
     armor: { w: 38, h: 44 }
   };
 
-  function Enemy(def) {
+  /* `seed` gives this unit its own PRNG stream. It is derived from the match
+   * seed and the unit's slot in the level, never drawn from a shared
+   * generator, so the stagger on a patrol is the same on every client and the
+   * same on every attempt — a retry faces the encounter it just lost to, not
+   * a reshuffled one. */
+  function Enemy(def, seed) {
     this.type = def.type;
     var s = SIZES[def.type] || SIZES.grunt;
     this.w = def.w || s.w;
@@ -20,14 +25,17 @@
     this.spawnY = def.y - this.h;
     this.minX = def.minX != null ? def.minX : this.spawnX - 110;
     this.maxX = def.maxX != null ? def.maxX : this.spawnX + 110;
-    this.dir = def.dir || 1;
+    this.dir0 = def.dir || 1;
     this.webbable = def.type !== 'armor';
+    this.seed = (seed >>> 0) || 1;
     this.reset();
   }
 
   Enemy.prototype.reset = function () {
+    var rnd = new M.Rand(this.seed);
     this.x = this.spawnX;
     this.y = this.spawnY;
+    this.dir = this.dir0;
     this.vx = 0; this.vy = 0;
     this.stuck = false;
     this.stuckDir = 'down';
@@ -35,10 +43,10 @@
     this.strand = null;
     this.webFrom = null;      // where the shot was fired from, for the strand
     this.state = 'idle';
-    this.timer = 0.4 + Math.random() * 0.6;
+    this.timer = 0.4 + rnd.float() * 0.6;
     this.aimX = 0; this.aimY = 0;
     this.flash = 0;
-    this.phase = Math.random() * 6.28;
+    this.phase = rnd.float() * 6.28;
   };
 
   Enemy.prototype.box = function () { return { x: this.x, y: this.y, w: this.w, h: this.h }; };
@@ -84,8 +92,14 @@
     if (r.hitY) this.vy = 0;
   };
 
+  /* Who this unit is shooting at. With more than one player in the world the
+   * answer has to come from the sim and nothing else — picking "the local
+   * player" would have every client aiming at a different target and the two
+   * simulations would part company on the first bullet. Nearest wins, ties
+   * broken by slot order. */
   Enemy.prototype.aimAndFire = function (dt, world) {
-    var p = world.player;
+    var p = world.nearestPlayer(this.cx(), this.cy());
+    if (!p) return;
     var dx = p.cx() - this.cx(), dy = p.cy() - this.cy();
     var d = M.len(dx, dy);
     this.dir = dx >= 0 ? 1 : -1;

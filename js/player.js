@@ -10,19 +10,49 @@
  * stops a wall clip from leaving you dead-hanging in mid air. */
 (function (global) {
   'use strict';
-  var T = global.THWIP, C = T.C, M = T.M, Ph = T.Physics;
+  var T = global.THWIP, C = T.C, M = T.M, Ph = T.Physics, Tg = T.Trig;
 
   var _p = { x: 0, y: 0 }, _v = { x: 0, y: 0 };
 
-  function Player(x, y) {
+  function Player(x, y, index) {
     this.w = C.PLAYER_W;
     this.h = C.PLAYER_H;
+    /* Slot in world.players. It is the player's identity everywhere: the
+     * input array is indexed by it, the collision pass iterates by it, and
+     * the renderer picks a colour from it. Nothing anywhere may key off
+     * "is this me" — that is the one fact clients disagree about. */
+    this.index = index || 0;
+    this.name = 'P' + ((index || 0) + 1);
+    this.spawnX = x;
+    this.spawnY = y;
+    this.deaths = 0;
+    this.resetRun();
     this.reset(x, y);
   }
+
+  /* Cleared once per round rather than once per attempt: a death inside a
+   * round puts the body back on the spawn, it does not un-finish you. */
+  Player.prototype.resetRun = function () {
+    this.finished = false;      // reached the goal
+    this.out = false;           // eliminated for this round (versus)
+    this.finishTime = 0;
+    this.penalty = 0;
+    this.thwips = 0;
+    this.misses = 0;
+    this.deaths = 0;
+  };
+
+  /* Simulated this tick? A finished or eliminated body is frozen where it
+   * stands: still drawn, still solid in co-op, but no longer taking input. */
+  Player.prototype.active = function () { return !this.finished && !this.out; };
 
   Player.prototype.reset = function (x, y) {
     this.x = x - this.w * 0.5;
     this.y = y - this.h;
+    // where the body was at the end of the previous tick, for render
+    // interpolation. A teleport must not be interpolated, so it snaps here.
+    this.px = this.x;
+    this.py = this.y;
     this.vx = 0; this.vy = 0;
     this.grounded = false;
     this.wasGrounded = false;
@@ -42,6 +72,12 @@
     this.wallLock = 0;       // brief window where input can't cancel a kick
     this.sliding = false;
     this.boostCd = 0;
+  };
+
+  /* Called by the world once per tick, before anything moves. */
+  Player.prototype.snapshot = function () {
+    this.px = this.x;
+    this.py = this.y;
   };
 
   Player.prototype.cx = function () { return this.x + this.w * 0.5; };
@@ -95,12 +131,12 @@
     if (this.invuln > 0) return false;
     this.invuln = C.HIT_INVULN;
     this.stun = C.STUN_TIME;
-    if (this.web) { this.detach(); world.emit('release'); }
+    if (this.web) { this.detach(); world.emit('release', null, this); }
     this.vx = dirX * 340;
     this.vy = -260;
-    world.emit('hurt');
-    world.shakeAdd(7);
-    world.addPenalty(C.HIT_PENALTY);
+    world.emit('hurt', null, this);
+    world.shakeAdd(7, this);
+    world.addPenalty(C.HIT_PENALTY, this);
     return true;
   };
 
@@ -127,14 +163,14 @@
   Player.prototype.applyBoost = function (pad, world) {
     if (this.boostCd > 0) return false;
     this.boostCd = C.BOOST_CD;
-    if (this.web) { this.detach(); world.emit('release', {}); }
+    if (this.web) { this.detach(); world.emit('release', {}, this); }
     this.vx = pad.dx * pad.power;
     this.vy = pad.dy * pad.power;
     this.grounded = false;
     this.coyote = 0;
     this.wallLock = C.WALL_JUMP_LOCK;
     this.clampSpeed();
-    world.emit('boost', { x: pad.x + pad.w * 0.5, y: pad.y + pad.h * 0.5, pad: pad });
+    world.emit('boost', { x: pad.x + pad.w * 0.5, y: pad.y + pad.h * 0.5, pad: pad }, this);
     return true;
   };
 
@@ -160,7 +196,7 @@
 
     if (this.web) {
       this.web.age += dt;
-      this.web.wobble *= Math.pow(0.02, dt);
+      this.web.wobble *= Tg.DECAY_PER_STEP;
       this.web.snap = Math.max(0, this.web.snap - dt * 5);
       if (this.web.taut) this.updateTaut(dt, moveX, world, solids);
       else {
@@ -172,7 +208,7 @@
       // there forever, which is the one failure state with no way out.
       if (this.web && this.web.stall > 0.45) {
         this.detach();
-        world.emit('release');
+        world.emit('release', null, this);
       }
     } else {
       this.updateFree(dt, moveX, input, world, solids);
@@ -187,8 +223,8 @@
       : M.clamp(this.vx / 900, -0.5, 0.5);
     this.lean = M.lerp(this.lean, leanTarget, Math.min(1, dt * 12));
 
-    if (this.web) this.armAim = Math.atan2(this.web.ay - this.cy(), this.web.ax - this.cx());
-    else this.armAim = Math.atan2(input.aimY - this.cy(), input.aimX - this.cx());
+    if (this.web) this.armAim = Tg.atan2(this.web.ay - this.cy(), this.web.ax - this.cx());
+    else this.armAim = Tg.atan2(input.aimY - this.cy(), input.aimX - this.cx());
 
     this.clampSpeed();
   };
@@ -235,7 +271,7 @@
         this.vy = C.JUMP_VEL;
         this.jumpBuf = 0; this.coyote = 0;
         this.grounded = false;
-        world.emit('jump');
+        world.emit('jump', null, this);
       } else if (wallOk && this.wallDir !== 0 && this.wallCoyote > 0) {
         // kick away from the wall, and lock steering briefly so the arc reads
         this.vx = -this.wallDir * C.WALL_JUMP_VX;
@@ -247,12 +283,12 @@
         this.sliding = false;
         world.emit('walljump', {
           x: this.x + (this.wallDir > 0 ? this.w : 0), y: this.cy(), dir: this.wallDir
-        });
+        }, this);
         this.wallDir = 0;
       }
     }
     // short-hop: cut the rise when the button is let go early
-    if (!input.jumpHeld && this.vy < -180) this.vy *= Math.pow(0.02, dt);
+    if (!input.jumpHeld && this.vy < -180) this.vy *= Tg.DECAY_PER_STEP;
 
     this.vy = Math.min(C.TERMINAL_VY, this.vy + C.GRAVITY * dt);
     if (this.sliding && this.vy > C.WALL_SLIDE_VY) this.vy = C.WALL_SLIDE_VY;
@@ -273,8 +309,8 @@
 
     if (this.grounded && !this.wasGrounded) {
       this.landImpact = hard ? 1 : 0.35;
-      world.emit('land', this.landImpact);
-      if (hard) world.shakeAdd(M.clamp(4 + Math.abs(this.vx) * 0.006, 4, 9));
+      world.emit('land', this.landImpact, this);
+      if (hard) world.shakeAdd(M.clamp(4 + Math.abs(this.vx) * 0.006, 4, 9), this);
     }
   };
 
@@ -300,13 +336,13 @@
       var smack = r.hitX && Math.abs(this.vx) > 250;
       web.stall = this.speed() < 60 ? web.stall + dt : 0;
       if (r.hitX) this.vx = 0;
-      if (r.hitY) { if (this.vy > 320) world.emit('scuff'); this.vy = 0; }
+      if (r.hitY) { if (this.vy > 320) world.emit('scuff', null, this); this.vy = 0; }
       web.taut = false;
       web.omega = 0;
       this.grounded = !!Ph.onGround(this.box(), solids);
       // a face-first wall hit tears the web loose instead of leaving you
       // dangling against the bricks; grazes and floor skims keep it
-      if (smack) { this.detach(); world.emit('release'); world.shakeAdd(4); }
+      if (smack) { this.detach(); world.emit('release', null, this); world.shakeAdd(4, this); }
     }
   };
 
@@ -327,7 +363,7 @@
     d = M.dist(web.ax, web.ay, this.cx(), this.cy());
     if (d > web.L * (1 + C.ROPE_BREAK_SLACK)) {
       this.detach();
-      world.emit('release');
+      world.emit('release', null, this);
       return;
     }
     if (d > web.L + 2) {                       // pinned short of the arc: stay slack
@@ -346,7 +382,7 @@
     Ph.omegaToVelocity(web, _v);
     this.vx = _v.x; this.vy = _v.y;
     this.grounded = false;
-    if (radial > 260) world.emit('taut', { r: web.snap });
+    if (radial > 260) world.emit('taut', { r: web.snap }, this);
   };
 
   T.Player = Player;

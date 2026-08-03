@@ -2,7 +2,7 @@
  * Pure math: no DOM, no canvas. Shared by the game and the headless test. */
 (function (global) {
   'use strict';
-  var T = global.THWIP, C = T.C, M = T.M;
+  var T = global.THWIP, C = T.C, M = T.M, Tg = T.Trig;
 
   function overlap(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -95,34 +95,34 @@
    * Player position is anchor + L * (sin t, cos t): theta 0 hangs straight
    * down, theta grows clockwise-on-screen (to the right and up). */
   function pendulumPos(web, out) {
-    out.x = web.ax + web.L * Math.sin(web.theta);
-    out.y = web.ay + web.L * Math.cos(web.theta);
+    out.x = web.ax + web.L * Tg.sin(web.theta);
+    out.y = web.ay + web.L * Tg.cos(web.theta);
     return out;
   }
 
   /* theta'' = -(g/L) sin(theta) - damp*theta' + (aInput * cos(theta))/L */
   function pendulumStep(web, dt, inputAccelX) {
-    var alpha = -(C.GRAVITY / web.L) * Math.sin(web.theta)
+    var alpha = -(C.GRAVITY / web.L) * Tg.sin(web.theta)
       - C.PEND_DAMP * web.omega
-      + (inputAccelX * Math.cos(web.theta)) / web.L;
+      + (inputAccelX * Tg.cos(web.theta)) / web.L;
     web.omega = M.clamp(web.omega + alpha * dt, -C.MAX_OMEGA, C.MAX_OMEGA);
     web.theta += web.omega * dt;
   }
 
   /* velocity <-> angular velocity conversions (momentum carry-over) */
   function velocityToOmega(web, vx, vy) {
-    return (vx * Math.cos(web.theta) - vy * Math.sin(web.theta)) / web.L;
+    return (vx * Tg.cos(web.theta) - vy * Tg.sin(web.theta)) / web.L;
   }
 
   function omegaToVelocity(web, out) {
     var s = web.omega * web.L;
-    out.x = s * Math.cos(web.theta);
-    out.y = -s * Math.sin(web.theta);
+    out.x = s * Tg.cos(web.theta);
+    out.y = -s * Tg.sin(web.theta);
     return out;
   }
 
   function angleFromAnchor(ax, ay, px, py) {
-    return Math.atan2(px - ax, py - ay);
+    return Tg.atan2(px - ax, py - ay);
   }
 
   T.Physics = {

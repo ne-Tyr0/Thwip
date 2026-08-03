@@ -15,13 +15,7 @@
  * A companion to simtest.js, which proves maps CAN be cleared. This one proves
  * they cannot be cleared the wrong way. */
 'use strict';
-var fs = require('fs'), path = require('path'), vm = require('vm');
-
-var JS = path.join(__dirname, '..', 'js');
-['core', 'physics', 'player', 'enemies', 'levels', 'levels-fast', 'levels-big',
-  'modes', 'world'].forEach(function (f) {
-  vm.runInThisContext(fs.readFileSync(path.join(JS, f + '.js'), 'utf8'), { filename: f + '.js' });
-});
+require('./load.js')();
 var T = globalThis.THWIP, C = T.C, M = T.M;
 (function () {
   var s = 4242;

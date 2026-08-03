@@ -878,11 +878,45 @@
     }
   }
 
+  /* ---- interpolation ----------------------------------------------------
+   * The simulation moves in whole 1/60 ticks and the display does not, so a
+   * body is drawn between where it was at the end of the last tick and where
+   * it is now. `a` is how far through the current tick the frame landed.
+   *
+   * Only the bodies are interpolated. Everything else in the world either
+   * moves slowly enough not to need it (patrols, bullets) or is attached to
+   * geometry that does not move at all, and interpolating a rope's anchor
+   * point would make a fixed ring appear to breathe. */
+  function ix(p, a) { return p.px + (p.x - p.px) * a; }
+  function iy(p, a) { return p.py + (p.y - p.py) * a; }
+
+  /* Who is who, at a glance. The local body keeps the game's colours; the
+   * others are tinted by slot and drawn down at REMOTE_ALPHA, which is the
+   * one visual rule multiplayer really needs — you have to be able to tell
+   * instantly which of the four figures on screen is the one your hands are
+   * attached to, and still read the other three well enough to swing around
+   * them. */
+  var SLOT_TINTS = [
+    { body: '#17c3b2', dark: '#0e8c80' },   // slot 0 keeps the original teal
+    { body: '#ff9f45', dark: '#b06b23' },
+    { body: '#b892ff', dark: '#7a5cc0' },
+    { body: '#8fd3ff', dark: '#4d8cb5' },
+    { body: '#ffd166', dark: '#b08c33' },
+    { body: '#ff5470', dark: '#b02a45' },
+    { body: '#06d6a0', dark: '#049170' },
+    { body: '#c9d4e8', dark: '#8a93a6' }
+  ];
+  var REMOTE_ALPHA = 0.45;
+  var GHOST_ALPHA = 0.30;
+
+  function tintOf(p) { return SLOT_TINTS[(p.index || 0) % SLOT_TINTS.length]; }
+
   /* ---- the web --------------------------------------------------------- */
-  function drawWeb(ctx, p, time) {
+  function drawWeb(ctx, p, time, a) {
     var web = p.web;
     if (!web) return;
-    var px = p.cx(), py = p.cy() - 6;
+    a = a == null ? 1 : a;
+    var px = ix(p, a) + p.w * 0.5, py = iy(p, a) + p.h * 0.5 - 6;
     var d = M.dist(web.ax, web.ay, px, py);
     var tension = web.taut ? M.clamp(Math.abs(web.omega) * web.L / 900, 0, 1) : 0;
     // slack rope droops hard; a fast taut rope is nearly a straight line
@@ -963,8 +997,8 @@
     return cell('idle', 0);
   }
 
-  function drawPlayerSkin(ctx, p, time, m) {
-    var cx = p.cx(), cy = p.cy();
+  function drawPlayerSkin(ctx, p, time, m, a) {
+    var cx = ix(p, a) + p.w * 0.5, cy = iy(p, a) + p.h * 0.5;
     var rot = M.clamp(p.lean * 0.55, -0.8, 0.8);
     var flick = p.invuln > 0 && Math.floor(time * 22) % 2 === 0;
     var c = playerCell(p, m);
@@ -993,11 +1027,13 @@
     ctx.restore();
   }
 
-  function drawPlayer(ctx, p, time) {
+  function drawPlayer(ctx, p, time, a) {
+    a = a == null ? 1 : a;
     var pm = Skin.enabled && Skin.has('player.body') ? Skin.meta('player.body') : null;
-    if (pm) { drawPlayerSkin(ctx, p, time, pm); return; }
+    if (pm) { drawPlayerSkin(ctx, p, time, pm, a); return; }
 
-    var cx = p.cx(), cy = p.cy();
+    var tint = tintOf(p);
+    var cx = ix(p, a) + p.w * 0.5, cy = iy(p, a) + p.h * 0.5;
     var rot = M.clamp(p.lean * 0.55, -0.8, 0.8);
     var flick = p.invuln > 0 && Math.floor(time * 22) % 2 === 0;
 
@@ -1014,33 +1050,33 @@
     // legs
     if (p.grounded && Math.abs(p.vx) > 20) {
       var s1 = Math.sin(p.runPhase), s2 = Math.sin(p.runPhase + Math.PI);
-      limb(ctx, 0, 5, s1 * 5, 11, s1 * 9, 16, 5, P.bodyDark);
-      limb(ctx, 0, 5, s2 * 5, 11, s2 * 9, 16, 5, P.bodyDark);
+      limb(ctx, 0, 5, s1 * 5, 11, s1 * 9, 16, 5, tint.dark);
+      limb(ctx, 0, 5, s2 * 5, 11, s2 * 9, 16, 5, tint.dark);
     } else if (swinging) {
       var tr = M.clamp(-p.vx / 700, -1, 1);
-      limb(ctx, 0, 5, -f * 3 + tr * 4, 11, -f * 7 + tr * 8, 15, 5, P.bodyDark);
-      limb(ctx, 0, 5, -f * 1 + tr * 5, 12, -f * 3 + tr * 10, 17, 5, P.bodyDark);
+      limb(ctx, 0, 5, -f * 3 + tr * 4, 11, -f * 7 + tr * 8, 15, 5, tint.dark);
+      limb(ctx, 0, 5, -f * 1 + tr * 5, 12, -f * 3 + tr * 10, 17, 5, tint.dark);
     } else {
-      limb(ctx, 0, 5, f * 4, 10, f * 2, 15, 5, P.bodyDark);
-      limb(ctx, 0, 5, -f * 2, 11, -f * 6, 14, 5, P.bodyDark);
+      limb(ctx, 0, 5, f * 4, 10, f * 2, 15, 5, tint.dark);
+      limb(ctx, 0, 5, -f * 2, 11, -f * 6, 14, 5, tint.dark);
     }
 
     // torso
-    ctx.fillStyle = P.body;
+    ctx.fillStyle = tint.body;
     ctx.fillRect(-6, -10, 12, 17);
     ctx.fillStyle = P.accent;
     ctx.fillRect(-6, -4, 12, 3);
-    ctx.fillStyle = P.bodyDark;
+    ctx.fillStyle = tint.dark;
     ctx.fillRect(-6, 5, 12, 2);
 
     // arms — the lead arm points down the web line, the other trails
     var armA = p.armAim - rot;
     var ax1 = Math.cos(armA) * 8, ay1 = Math.sin(armA) * 8;
     var ax2 = Math.cos(armA) * 14, ay2 = Math.sin(armA) * 14;
-    limb(ctx, 0, -6, ax1, -6 + ay1 * 0.8, ax2, -6 + ay2, 4.5, P.body);
+    limb(ctx, 0, -6, ax1, -6 + ay1 * 0.8, ax2, -6 + ay2, 4.5, tint.body);
     var back = swinging ? -armA * 0.3 + 2.6 : (p.grounded ? Math.sin(p.runPhase + 1) * 0.8 + 2.2 : 2.0);
     limb(ctx, 0, -6, Math.cos(back) * 7 * f, -4 + Math.sin(back) * 6,
-      Math.cos(back) * 12 * f, -2 + Math.sin(back) * 11, 4, P.bodyDark);
+      Math.cos(back) * 12 * f, -2 + Math.sin(back) * 11, 4, tint.dark);
 
     // head
     ctx.fillStyle = P.head;
@@ -1234,10 +1270,17 @@
         ctx.fillStyle = 'rgba(120,10,26,' + (0.35 * k).toFixed(3) + ')';
         ctx.fillRect(0, 0, view.w, view.h);
       }
-      hudText(ctx, 'DEAD', view.w * 0.5, view.h * 0.5 - 6, 46, P.hazard, 'center');
-      hudText(ctx, 'RESTARTING', view.w * 0.5, view.h * 0.5 + 24, 12,
-        'rgba(255,180,195,0.8)', 'center', '');
+      var team = world.players.length > 1;
+      hudText(ctx, team ? 'TEAM RESET' : 'DEAD', view.w * 0.5, view.h * 0.5 - 6,
+        team ? 34 : 46, P.hazard, 'center');
+      // in co-op it matters who it was, and it matters that it is not personal
+      hudText(ctx, team && world.diedTo
+        ? world.diedTo.name + ' WENT DOWN — EVERYONE BACK TO THE START'
+        : 'RESTARTING',
+      view.w * 0.5, view.h * 0.5 + 24, 12, 'rgba(255,180,195,0.8)', 'center', '');
     }
+
+    if (ui.match) drawMatchHud(ctx, view, world, ui);
 
     /* ---- bottom centre: one line, never two ---------------------------
      * This used to stack a level hint, a SLOW label and a control legend in
@@ -1250,6 +1293,94 @@
     } else {
       hudText(ctx, 'R restart   ESC menu   M ' + (T.Audio.isMuted() ? 'unmute' : 'mute'),
         view.w * 0.5, view.h - 22, 11, 'rgba(233,237,255,0.26)', 'center', '');
+    }
+  }
+
+  /* ---- the match layer --------------------------------------------------
+   * Everything a HUD needs to say that is about the ROOM rather than about
+   * the run: who is still out there, how long until the round starts, and
+   * whether the game is waiting on somebody's packets.
+   *
+   * All of it is drawn from simulation state, which is why it needs no
+   * network messages of its own — the countdown is a tick count every client
+   * arrives at independently. */
+  function drawMatchHud(ctx, view, world, ui) {
+    var match = ui.match, cx = view.w * 0.5, i, p;
+
+    /* Waiting on the room. This is the one honest thing a lockstep game must
+     * tell you: nobody is being predicted, so if a packet is late everyone
+     * holds. Saying so beats a silent freeze that reads as a crash. */
+    if (ui.stalled) {
+      ctx.fillStyle = 'rgba(6,8,16,0.55)';
+      ctx.fillRect(cx - 150, view.h - 78, 300, 26);
+      hudText(ctx, 'WAITING FOR THE OTHER PLAYERS', cx, view.h - 60, 12,
+        P.gold, 'center', '');
+    }
+
+    if (match.state === 'countdown') {
+      var secs = Math.ceil(match.timer / C.TICK_HZ);
+      var frac = (match.timer % C.TICK_HZ) / C.TICK_HZ;
+      ctx.save();
+      ctx.globalAlpha = 0.35 + frac * 0.65;
+      hudText(ctx, secs > 0 ? String(secs) : 'GO', cx, view.h * 0.5, 96,
+        secs > 0 ? P.ink : P.goal, 'center');
+      ctx.restore();
+      hudText(ctx, world.rules.name + ' · ' + world.level.name, cx, view.h * 0.5 + 44,
+        13, 'rgba(233,237,255,0.6)', 'center', '');
+      if (match.roundCount > 1) {
+        hudText(ctx, 'ROUND ' + (match.round + 1) + ' OF ' + match.roundCount,
+          cx, view.h * 0.5 + 66, 11, P.gold, 'center', '');
+      }
+      return;
+    }
+
+    if (match.state === 'intermission') {
+      var last = match.rounds[match.rounds.length - 1];
+      ctx.fillStyle = 'rgba(6,7,15,0.72)';
+      ctx.fillRect(0, 0, view.w, view.h);
+      var final = match.round + 1 >= match.roundCount;
+      hudText(ctx, final ? 'MATCH OVER' : 'ROUND ' + (match.round + 1) + ' DONE',
+        cx, view.h * 0.5 - 90, 30, P.ink, 'center');
+      if (last) {
+        var rows = last.scores.slice().sort(function (a, b) {
+          if (a.dnf !== b.dnf) return a.dnf ? 1 : -1;
+          return a.time - b.time;
+        });
+        for (i = 0; i < rows.length; i++) {
+          var name = world.players[rows[i].index]
+            ? world.players[rows[i].index].name : 'P' + (rows[i].index + 1);
+          var y = view.h * 0.5 - 46 + i * 22;
+          hudText(ctx, (i + 1) + '.  ' + name, cx - 120, y, 15,
+            rows[i].index === world.localIndex ? P.goal : P.ink, 'left');
+          hudText(ctx, rows[i].dnf ? 'DNF' : M.fmtTime(rows[i].time), cx + 120, y, 15,
+            rows[i].dnf ? P.hazard : P.ink, 'right');
+        }
+      }
+      hudText(ctx, final ? 'RESULTS COMING UP' :
+        'NEXT ROUND IN ' + Math.ceil(match.timer / C.TICK_HZ),
+      cx, view.h * 0.5 + 110, 12, 'rgba(233,237,255,0.55)', 'center', '');
+      return;
+    }
+
+    // running: the lobby down the right-hand side, in slot order
+    var n = world.players.length;
+    if (n < 2) return;
+    var bx = view.w - 18, by = 92;
+    for (i = 0; i < n; i++) {
+      p = world.players[i];
+      var col = p.index === world.localIndex ? SLOT_TINTS[i % SLOT_TINTS.length].body
+        : 'rgba(233,237,255,0.6)';
+      var mark = p.finished ? '✓' : p.out ? '✕' : p.gone ? '—' : '·';
+      var t = p.finished ? M.fmtTime(p.finishTime + p.penalty)
+        : p.out ? 'OUT' : '';
+      hudText(ctx, mark + ' ' + p.name, bx - 62, by + i * 17, 11,
+        p.out || p.gone ? 'rgba(233,237,255,0.3)' : col, 'right', '');
+      hudText(ctx, t, bx, by + i * 17, 11,
+        p.finished ? P.goal : 'rgba(233,237,255,0.35)', 'right', '');
+    }
+    if (match.roundCount > 1) {
+      hudText(ctx, 'ROUND ' + (match.round + 1) + '/' + match.roundCount,
+        bx, by - 18, 11, P.gold, 'right', '');
     }
   }
 
@@ -1334,11 +1465,45 @@
     }
   }
 
+  /* ---- everybody else ---------------------------------------------------
+   * A remote body is the same figure at reduced opacity with a name over it.
+   * The dimming is the design intent from the original notes — other people
+   * read as present but not as YOU — and it doubles as the answer to the
+   * practical question a co-op player asks forty times a run, which is "which
+   * one am I". A finished body gets a tick instead of a name so the room can
+   * see who is already home. */
+  function drawTag(ctx, p, a, alpha, label, colour) {
+    var x = ix(p, a) + p.w * 0.5, y = iy(p, a) - 12;
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 10px ' + T.FONT;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(6,8,16,0.55)';
+    var wdt = ctx.measureText(label).width + 8;
+    ctx.fillRect(x - wdt * 0.5, y - 9, wdt, 12);
+    ctx.fillStyle = colour;
+    ctx.fillText(label, x, y);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
+
+  function drawOther(ctx, p, time, a, vis, alpha, label) {
+    if (!visible(vis, { x: ix(p, a) - 40, y: iy(p, a) - 40, w: p.w + 80, h: p.h + 80 })) return;
+    ctx.globalAlpha = alpha;
+    drawWeb(ctx, p, time, a);
+    drawPlayer(ctx, p, time, a);
+    ctx.globalAlpha = 1;
+    if (label) {
+      drawTag(ctx, p, a, Math.min(1, alpha + 0.35),
+        p.finished ? '✓ ' + label : label, tintOf(p).body);
+    }
+  }
+
   /* ---- top level ------------------------------------------------------- */
   function draw(ctx, view, world, cam, ui) {
     var level = world.level;
     buildLayers(level, level.id);
     var time = ui.time;
+    var alpha = ui.alpha == null ? 1 : M.clamp(ui.alpha, 0, 1);
     // pixel art must not be filtered; set once a frame since the flag is
     // context state and the transform stack below does not preserve intent
     ctx.imageSmoothingEnabled = !!Q.smoothing;
@@ -1373,9 +1538,26 @@
     drawBullets(ctx, world, time, vis);
 
     FX.draw(ctx, vis);
-    drawWeb(ctx, world.player, time);
-    drawPlayer(ctx, world.player, time);
-    if (ui.aim && world.state === 'playing') drawReticle(ctx, world, ui.aim, view);
+
+    /* Order matters: everyone else first, then the ghost, then you on top.
+     * At full opacity over a dimmed crowd, the local body is never the one
+     * you lose track of in a pile-up. */
+    var me = world.player, i;
+    for (i = 0; i < world.players.length; i++) {
+      if (world.players[i] !== me) {
+        drawOther(ctx, world.players[i], time, alpha, vis, REMOTE_ALPHA,
+          world.players[i].name);
+      }
+    }
+    if (ui.ghost && ui.ghost.world !== world) {
+      drawOther(ctx, ui.ghost.player(), time, alpha, vis, GHOST_ALPHA,
+        ui.ghostLabel || null);
+    }
+    drawWeb(ctx, me, time, alpha);
+    drawPlayer(ctx, me, time, alpha);
+    if (ui.aim && world.state === 'playing' && me.active()) {
+      drawReticle(ctx, world, ui.aim, view);
+    }
 
     ctx.restore();
 

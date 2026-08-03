@@ -65,7 +65,13 @@
       help: 'Death and damage flashes. Turn OFF if you are sensitive to ' +
         'flashing imagery — nothing you need to see is lost.'
     },
-    hints: { kind: 'bool', def: true, label: 'LEVEL HINTS', help: 'The tip that fades in at the start of a map.' }
+    hints: { kind: 'bool', def: true, label: 'LEVEL HINTS', help: 'The tip that fades in at the start of a map.' },
+    ghost: {
+      kind: 'bool', def: true, label: 'BEST-RUN GHOST',
+      help: 'Races your own best time as a faded figure. It replays that ' +
+        'run\'s inputs through a second copy of the simulation, so it costs ' +
+        'a little CPU as well as a little screen.'
+    }
   };
 
   /* Presets write real values, so there is never a preset/option mismatch.

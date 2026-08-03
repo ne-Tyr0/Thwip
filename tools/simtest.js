@@ -17,13 +17,7 @@
  *   node tools/simtest.js mech         rules and layout only, no map runs
  */
 'use strict';
-var fs = require('fs'), path = require('path'), vm = require('vm');
-
-var JS = path.join(__dirname, '..', 'js');
-['core', 'physics', 'player', 'enemies', 'levels', 'levels-fast', 'levels-big',
-  'modes', 'world'].forEach(function (f) {
-  vm.runInThisContext(fs.readFileSync(path.join(JS, f + '.js'), 'utf8'), { filename: f + '.js' });
-});
+require('./load.js')();
 
 var T = globalThis.THWIP, C = T.C, M = T.M, Ph = T.Physics;
 

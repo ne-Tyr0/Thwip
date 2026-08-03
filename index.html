@@ -250,6 +250,94 @@
   }
   .opt:hover { border-color: var(--live); color: var(--ink); }
   .opt.on { border-color: var(--live); color: var(--live); background: rgba(23,195,178,0.10); }
+  /* a non-host sees the host's choices but cannot move them */
+  .opt.ro { cursor: default; opacity: 0.75; }
+  .opt.ro:hover { border-color: var(--hair); color: var(--dim); }
+  .opt.ro.on:hover { border-color: var(--live); color: var(--live); }
+
+  /* ---- multiplayer ------------------------------------------------------
+   * Same furniture as the rest of the UI. The only new idea is the address
+   * block, which has one job: be readable from the other side of a sofa. */
+  #netFront, #netJoin { width: min(720px, 94vw); }
+  #netLobby { width: min(920px, 94vw); }
+  .preset.live { border-color: rgba(23,195,178,0.45); color: var(--live); }
+  .preset.live:hover { background: rgba(23,195,178,0.10); }
+
+  .hostbox { margin-top: 6px; }
+  .netnote {
+    font-size: var(--t-small); color: var(--dim); line-height: 1.7;
+    margin: 10px 0; max-width: 62ch;
+  }
+  .netnote b { color: var(--ink); font-weight: 400; }
+  .cmd {
+    font: inherit; font-size: var(--t-small); color: var(--live);
+    background: rgba(23,195,178,0.06); border-left: 2px solid var(--live);
+    padding: 10px 14px; margin: 12px 0; white-space: pre; overflow-x: auto;
+  }
+  .addr {
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 10px 0; border-bottom: 1px solid var(--hair);
+  }
+  .addr .lab { font-size: var(--t-micro); color: var(--faint); letter-spacing: 0.2em; width: 74px; }
+  .addr b { font-size: var(--t-head); letter-spacing: 0.1em; font-weight: 400; color: var(--live); }
+  .err { color: var(--warn); font-size: var(--t-small); min-height: 18px; margin-top: 12px; letter-spacing: 0.06em; }
+
+  .namebox, .joinbox {
+    background: rgba(255,255,255,0.05); border: 1px solid var(--hair);
+    color: var(--ink); font: inherit; padding: 6px 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; outline: none;
+  }
+  .namebox { font-size: var(--t-small); width: 130px; }
+  .namebox:focus, .joinbox:focus { border-color: var(--live); }
+  .joinrow { display: flex; gap: 8px; margin: 14px 0 4px; }
+  .joinbox { flex: 1; font-size: var(--t-lead); padding: 12px 14px; }
+
+  .lobbygrid { display: grid; grid-template-columns: 260px 1fr; gap: 26px; }
+  @media (max-width: 720px) { .lobbygrid { grid-template-columns: 1fr; } }
+  .ctl.wrap { justify-content: flex-start; }
+  #lobbyRules, #lobbyModes, #lobbyLevels, #lobbyRounds {
+    display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-start;
+  }
+  .prow {
+    display: flex; align-items: center; gap: 9px; padding: 9px 0;
+    border-bottom: 1px solid var(--hair); font-size: var(--t-small);
+  }
+  .prow.empty { opacity: 0.35; }
+  .prow .dot { width: 9px; height: 9px; background: var(--hair); flex-shrink: 0; }
+  /* one colour per slot, matching the figures on the canvas */
+  .prow .dot.s0 { background: #17c3b2; } .prow .dot.s1 { background: #ff9f45; }
+  .prow .dot.s2 { background: #b892ff; } .prow .dot.s3 { background: #8fd3ff; }
+  .prow .dot.s4 { background: #ffd166; } .prow .dot.s5 { background: #ff5470; }
+  .prow .dot.s6 { background: #06d6a0; } .prow .dot.s7 { background: #c9d4e8; }
+  .prow .pn { flex: 1; letter-spacing: 0.1em; }
+  .prow .tag {
+    font-size: var(--t-micro); letter-spacing: 0.14em; color: var(--faint);
+    border: 1px solid var(--hair); padding: 2px 5px;
+  }
+  .prow .tag.you { color: var(--live); border-color: rgba(23,195,178,0.4); }
+
+  /* ---- match results ---------------------------------------------------- */
+  #matchResults .panel { width: min(760px, 94vw); text-align: center; }
+  #matchResults h2 { font-size: var(--t-lead); letter-spacing: 0.22em; margin: 0; color: var(--dim); }
+  .mrsub { font-size: var(--t-micro); color: var(--faint); letter-spacing: 0.18em; margin: 8px 0 22px; }
+  .teamclock { font-size: 60px; line-height: 1; color: var(--ok); letter-spacing: 0.02em; }
+  .teamlabel { font-size: var(--t-micro); letter-spacing: 0.26em; color: var(--dim); margin: 8px 0 22px; }
+  .mtable { width: 100%; border-collapse: collapse; font-size: var(--t-small); }
+  .mtable th {
+    font-weight: 400; font-size: var(--t-micro); letter-spacing: 0.16em;
+    color: var(--faint); text-align: right; padding: 0 8px 9px;
+    border-bottom: 1px solid var(--hair);
+  }
+  .mtable th:nth-child(-n+2) { text-align: left; }
+  .mtable td { padding: 10px 8px; text-align: right; border-bottom: 1px solid var(--hair); color: var(--dim); }
+  .mtable td:nth-child(-n+2) { text-align: left; color: var(--ink); letter-spacing: 0.08em; }
+  .mtable tr.me td { color: var(--live); }
+  .mtable tr.me td:nth-child(-n+2) { color: var(--live); }
+  .mtable .place { color: var(--faint); }
+  .mtable .place.first { color: var(--gold); }
+  .mtable .total { color: var(--ink); }
+  .mtable tr.me .total { color: var(--live); }
+  .mtable .dnf { color: var(--warn); }
 </style>
 </head>
 <body>
@@ -261,6 +349,7 @@
     <div class="tag">NON-LETHAL WEB-SWINGING SPEEDRUN</div>
     <div class="modes" id="modeList"></div>
     <div class="presets" style="margin-top:18px">
+      <button class="preset live" id="btnMulti">MULTIPLAYER &nbsp;LAN</button>
       <button class="preset" id="btnSettings">SETTINGS &nbsp;O</button>
     </div>
     <div class="keys">
@@ -301,6 +390,78 @@
     <div class="presets" id="presetRow"></div>
     <div id="setList"></div>
   </div>
+
+  <!-- ---- multiplayer: front door ------------------------------------- -->
+  <div class="panel" id="netFront" style="display:none">
+    <button class="back" id="btnNetBack">&lsaquo; ALL MODES &nbsp;ESC</button>
+    <div class="bar">
+      <h2>MULTIPLAYER</h2>
+      <span class="sub">SAME NETWORK · LOCKSTEP</span>
+      <span class="spacer"></span>
+      <span class="tally">NAME <input id="netName" class="namebox" maxlength="12" spellcheck="false"></span>
+    </div>
+    <div id="netHostBox" class="hostbox"></div>
+    <div class="err" id="netErr"></div>
+    <div class="btns" style="justify-content:flex-start;margin-top:18px">
+      <button class="btn primary" id="btnHost">HOST GAME</button>
+      <button class="btn" id="btnJoinOpen">JOIN GAME</button>
+    </div>
+    <div class="hint">Every client runs the same simulation from the same
+      inputs, so what you see is what everyone sees — nobody's screen is a
+      guess being corrected later. That also means a slow connection slows
+      everyone, which is why this is a same-room, same-network feature.</div>
+  </div>
+
+  <!-- ---- multiplayer: join ------------------------------------------- -->
+  <div class="panel" id="netJoin" style="display:none">
+    <button class="back" id="btnJoinBack">&lsaquo; BACK</button>
+    <div class="bar"><h2>JOIN A GAME</h2></div>
+    <div class="joinrow">
+      <input id="joinAddr" class="joinbox" placeholder="CODE OR 192.168.1.24:8787"
+             spellcheck="false" autocomplete="off">
+      <button class="btn primary" id="btnJoinGo">CONNECT</button>
+    </div>
+    <div class="netnote" id="joinPreview"></div>
+    <div class="hint">Ask the host for their code or address — the relay prints
+      both when it starts, and the lobby shows them again. A code is just the
+      address in fewer characters; either works.</div>
+  </div>
+
+  <!-- ---- multiplayer: lobby ------------------------------------------ -->
+  <div class="panel" id="netLobby" style="display:none">
+    <button class="back" id="btnLobbyLeave">&lsaquo; LEAVE</button>
+    <div class="bar">
+      <h2>LOBBY</h2>
+      <span class="spacer"></span>
+      <span class="tally" id="lobbyAddr"></span>
+    </div>
+    <div class="lobbygrid">
+      <div>
+        <div class="sgroup">PLAYERS</div>
+        <div id="lobbyPlayers"></div>
+      </div>
+      <div>
+        <div class="sgroup">MODE</div>
+        <div class="ctl" id="lobbyRules"></div>
+        <div class="netnote" id="lobbyRulesBlurb"></div>
+
+        <div class="sgroup">RULES</div>
+        <div class="ctl" id="lobbyModes"></div>
+
+        <div class="sgroup">MAP</div>
+        <div class="ctl wrap" id="lobbyLevels"></div>
+
+        <div id="lobbyRoundRow">
+          <div class="sgroup">ROUNDS</div>
+          <div class="ctl" id="lobbyRounds"></div>
+        </div>
+      </div>
+    </div>
+    <div class="btns" style="justify-content:flex-start;margin-top:20px">
+      <button class="btn primary" id="btnLobbyStart">START MATCH</button>
+    </div>
+    <div class="hint" id="lobbyHint"></div>
+  </div>
 </div>
 
 <div id="results" class="screen">
@@ -319,7 +480,22 @@
   </div>
 </div>
 
+<div id="matchResults" class="screen">
+  <div class="panel">
+    <h2 id="mrTitle">FINAL STANDINGS</h2>
+    <div class="mrsub" id="mrSub"></div>
+    <div id="mrBody"></div>
+    <div class="btns" style="margin-top:22px">
+      <button class="btn primary" id="btnMatchLobby">BACK TO LOBBY</button>
+      <button class="btn" id="btnMatchQuit">QUIT TO MENU</button>
+    </div>
+  </div>
+</div>
+
 <script src="js/core.js"></script>
+<!-- Deterministic sin/cos/atan2. Must load before anything that simulates:
+     see the header in js/trig.js for what Math.cos costs a lockstep game. -->
+<script src="js/trig.js"></script>
 <script src="js/settings.js"></script>
 <!-- Optional art layer. Both are safe to delete: without them the game draws
      itself out of canvas primitives exactly as before. -->
@@ -332,9 +508,23 @@
 <script src="js/levels-fast.js"></script>
 <script src="js/levels-big.js"></script>
 <script src="js/modes.js"></script>
+<!-- Match rules and the round runner. The rule sets register themselves, so
+     a new one is a file and a script tag; modes/match.js must come first. -->
+<script src="js/hash.js"></script>
+<script src="net/protocol.js"></script>
+<script src="modes/match.js"></script>
+<script src="modes/solo.js"></script>
+<script src="modes/coop.js"></script>
+<script src="modes/versus.js"></script>
 <script src="js/world.js"></script>
+<script src="js/ghost.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/render.js"></script>
+<!-- Local/LAN multiplayer. All three are safe to delete: without them the
+     title screen loses its MULTIPLAYER button and nothing else changes. -->
+<script src="net/code.js"></script>
+<script src="net/client.js"></script>
+<script src="net/lobby.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

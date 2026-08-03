@@ -19,7 +19,7 @@
  * above). */
 (function (global) {
   'use strict';
-  var T = global.THWIP, C = T.C, M = T.M;
+  var T = global.THWIP, C = T.C, M = T.M, Tg = T.Trig;
 
   /* Vertical gap from a ring line down to the floor it spans. Must exceed the
    * longest rope players actually swing on (~340) or arcs bottom out into the
@@ -100,7 +100,7 @@
         x = M.lerp(ax, bx, t);
         y = M.lerp(ay, by, t);
         travelled += segLen / n;
-        if (amp) y += Math.sin(travelled * 0.011 + rnd() * 0.5) * amp;
+        if (amp) y += Tg.sin(travelled * 0.011 + rnd() * 0.5) * amp;
         out.push(ring(Math.round(x), Math.round(y), o));
       }
     }

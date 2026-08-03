@@ -1,6 +1,9 @@
 # frames written by tools/shotserver.js during development
 tools/shots/
 
+# the relay's one dependency (ws); `npm install` puts it back
+node_modules/
+
 # OS cruft
 .DS_Store
 Thumbs.db
