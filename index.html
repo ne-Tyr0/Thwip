@@ -133,6 +133,10 @@
   }
   .card .b b { color: var(--ink); font-weight: 400; }
   .card .b .goal { color: var(--faint); }
+  /* the unassisted best takes a row of its own rather than squeezing in as a
+     third column next to BEST and the target time */
+  .card .b { flex-wrap: wrap; }
+  .card .b .clean { flex-basis: 100%; color: var(--gold); letter-spacing: 0.08em; }
 
   /* medal as a chip, so it reads as a badge and not as more text */
   .chip {
@@ -517,6 +521,7 @@
 <script src="modes/coop.js"></script>
 <script src="modes/versus.js"></script>
 <script src="js/world.js"></script>
+<script src="js/aim.js"></script>
 <script src="js/ghost.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/render.js"></script>

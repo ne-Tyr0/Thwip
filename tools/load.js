@@ -32,6 +32,7 @@ var FILES = [
   'modes/coop.js',
   'modes/versus.js',
   'js/world.js',
+  'js/aim.js',
   'js/ghost.js'
 ];
 

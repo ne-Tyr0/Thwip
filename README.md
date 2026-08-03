@@ -75,6 +75,56 @@ goes slack — normal platformer physics take over and the rope snaps taut again
 the instant you reach full extension, so a graze costs speed instead of ending
 the swing.
 
+### Aim assist, and what it costs you
+
+Aim is free and nothing snaps unless you ask it to. **AIM ASSIST** in settings
+runs `OFF · LIGHT · STANDARD · FULL`, and OFF is the default:
+
+| | corrects up to | takes off |
+| --- | --- | --- |
+| **LIGHT** | 4° | half your error — a near miss lands more often, and you can still miss |
+| **STANDARD** | 8° | 85% — most near misses land |
+| **FULL** | 14° | all of it: a snap to the best anchor in a wide cone |
+
+It only ever helps you hit an **anchor**. Enemies are left alone — tagging one
+lasts the whole run and is never what kills a line, whereas missing a swing is
+exactly that. And it can only propose a shot the game would really take: every
+candidate is checked through the same call the crosshair uses, so it can never
+pull you onto a ring behind a wall. When it is bending a shot, the correction is
+drawn — a dashed line from your cursor to where the web is actually going. A
+crosshair that shows one line while the game fires somewhere else is the one
+thing aim assist must never do.
+
+**Runs are scored on how much you leaned on it, not on the setting.** Every shot
+is measured against a fixed reference — a degree is a degree, whatever cone is
+in force — and a shot that needed no correction scores zero:
+
+| | |
+| --- | --- |
+| **CLEAN** | assist was never switched on |
+| **SHARP** | assist on, under 2% reliance — the net was there and never caught anything |
+| **GUIDED** | under 15% |
+| **ASSISTED** | more than that |
+
+So aiming true on FULL still finishes the map SHARP. That is deliberate. A
+number that only read back the option would reward a menu toggle and nothing
+else: the player who needs assist would be permanently branded, and the player
+who does not would get credit for a setting rather than for aiming. This
+measures how much of the run the game did for you.
+
+Each level therefore keeps **two** times: the outright best, and the **clean
+best** from runs at CLEAN or SHARP. Collapsing them makes both worse — one best
+that assist can take means an honest run is gone the first time somebody tries
+FULL, and one that assist may never take means a player who needs it has a
+personal best that never moves. With both, the fast time is always yours and the
+clean time is always earned, and neither can erase the other. The clean best
+only appears on a level card once it actually differs.
+
+In multiplayer it is per-player and per-round, and it changes nothing about the
+netcode: assist resolves **above** the simulation boundary, so what goes on the
+wire is simply where you aimed. Two players on different settings stay in exact
+lockstep, and nobody's client needs to know anyone else's level.
+
 ## The three modes
 
 A mode is a **rule set**, not a content bundle (`js/modes.js`). It decides how
@@ -534,6 +584,7 @@ node tools/simtest.js              # everything: 3 modes, 26 map slots
 node tools/simtest.js fast         # one mode
 node tools/simtest.js big spire    # one map
 node tools/dettest.js              # is the simulation deterministic?
+node tools/aimtest.js              # aim assist: helps, never lies, never desyncs
 node tools/nettest.js              # two real clients through a real relay
 node tools/peer.js                 # join a live relay as a headless player
 node tools/enginetest.js           # does a browser agree with node, bit for bit?

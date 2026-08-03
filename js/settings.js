@@ -66,6 +66,14 @@
         'flashing imagery — nothing you need to see is lost.'
     },
     hints: { kind: 'bool', def: true, label: 'LEVEL HINTS', help: 'The tip that fades in at the start of a map.' },
+    aimAssist: {
+      kind: 'pick', def: 0, label: 'AIM ASSIST',
+      opts: [[0, 'OFF'], [1, 'LIGHT'], [2, 'STANDARD'], [3, 'FULL']],
+      help: 'Bends a near-miss web toward an anchor you could really have hit. ' +
+        'Never toward enemies, and never through a wall. Runs are scored on how ' +
+        'much you LEANED on it, not on this setting — aim true on FULL and the ' +
+        'map still finishes clean.'
+    },
     ghost: {
       kind: 'bool', def: true, label: 'BEST-RUN GHOST',
       help: 'Races your own best time as a faded figure. It replays that ' +

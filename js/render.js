@@ -1387,10 +1387,19 @@
   /* ---- crosshair ------------------------------------------------------- */
   function drawReticle(ctx, world, aim, view) {
     var p = world.player;
+    /* Two points, and the difference between them is the whole story. The
+     * crosshair stays under the cursor, because that is where the hand is and
+     * dragging it around would feel like the mouse was fighting back. The shot
+     * line comes off the ASSISTED point, because that is where the web is
+     * actually going — a crosshair that shows an unassisted line while the
+     * game quietly fires somewhere else is the one thing aim assist must never
+     * do. When they disagree, the gap is drawn. */
+    var ax = aim.x == null ? aim.wx : aim.x;
+    var ay = aim.y == null ? aim.wy : aim.y;
     var dx = aim.wx - p.cx(), dy = aim.wy - p.cy();
     var d = M.len(dx, dy) || 1;
     var inRange = d <= C.WEB_RANGE;
-    var hit = world.previewShot(aim.wx, aim.wy);
+    var hit = world.previewShot(ax, ay);
     var col = !inRange ? 'rgba(233,237,255,0.3)'
       : hit && hit.kind === 'anchor' ? P.anchor
         : hit && hit.kind === 'enemy' ? (hit.ref.webbable ? P.web : P.hazard)
@@ -1413,6 +1422,26 @@
       ctx.beginPath();
       ctx.arc(hit.x, hit.y, 9, 0, Math.PI * 2);
       ctx.stroke();
+    }
+
+    /* The correction, shown rather than hidden: a short arc from the cursor to
+     * where the shot is really pointed. Somebody playing with assist on should
+     * always be able to see how much of the shot was theirs. */
+    if (aim.res && aim.res.pulled) {
+      ctx.strokeStyle = P.web;
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(aim.wx, aim.wy);
+      ctx.lineTo(ax, ay);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath();
+      ctx.arc(ax, ay, 4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
 
     ctx.strokeStyle = col;

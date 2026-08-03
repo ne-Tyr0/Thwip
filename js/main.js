@@ -39,6 +39,10 @@
   var renderAlpha = 1;          // how far through the current tick this frame is
   var soloIn = [null];
   var mouse = { sx: 0, sy: 0, wx: 0, wy: 0, down: false, right: false };
+  /* Where the shot is really going, after assist. `target` is last tick's
+   * anchor, handed back to the solver so its choice stays sticky. */
+  var aim = { x: 0, y: 0, wx: 0, wy: 0, res: null, target: null };
+  var aimStats = null;          // reliance accounting for the run in progress
   var keys = {};
   var cam = { x: 0, y: 0, zoom: 1, shakeX: 0, shakeY: 0 };
 
@@ -59,6 +63,11 @@
       cam.x = world.player.cx();
       cam.y = world.player.cy();
       cam.zoom = baseZoom();
+      /* Each round is its own run, so it gets its own reliance tally. A match
+       * that reported one number for five rounds would let a clean opening
+       * round pay for a heavily assisted closing one. */
+      aimStats = new T.Aim.Tracker();
+      aim.target = null;
     }
   }
 
@@ -78,6 +87,19 @@
   }
   function getGrade(modeId, levelId) { return read(k('grade', modeId, levelId)); }
   function getMedal(modeId, levelId) { return read(k('medal', modeId, levelId)); }
+  /* The unassisted best, kept apart from the overall one.
+   *
+   * Two lines rather than one, because collapsing them makes both worse. A
+   * single best that assist could take means the honest run is gone forever
+   * the first time somebody tries FULL; a single best that assist may NOT take
+   * means the player who needs assist has a personal best that never moves.
+   * Keeping both, the fast time is always yours and the clean time is always
+   * earned, and neither can erase the other. */
+  function getCleanBest(modeId, levelId) {
+    var v = parseFloat(read(k('cleanbest', modeId, levelId)));
+    return isFinite(v) && v > 0 ? v : null;
+  }
+  function getBestTier(modeId, levelId) { return read(k('besttier', modeId, levelId)); }
   function getAlt(levelId) {
     var v = parseFloat(read('thwip.alt.' + levelId));
     return isFinite(v) && v > 0 ? v : 0;
@@ -327,6 +349,16 @@
         '<span class="goal">BEST</span>';
     }
 
+    /* The clean best earns its own line on the card, but only once the two
+     * times differ. Showing "CLEAN 00:07.10" directly under an identical BEST
+     * is noise, and for the many players who never turn assist on they would
+     * be the same number on every card in the game. */
+    var cb = getCleanBest(mode.id, id);
+    if (cb && (!best || Math.abs(cb - best) > 0.005)) {
+      foot += '<span class="clean" title="your best without leaning on aim assist">' +
+        'CLEAN ' + M.fmtTime(cb) + '</span>';
+    }
+
     b.innerHTML = '<div class="top"><span class="n">' + label + '</span>' + chip + '</div>' +
       '<div class="t">' + meta.name + '</div>' +
       '<div class="b">' + foot + '</div>';
@@ -400,8 +432,13 @@
     show('play');
   }
 
+  /* One attempt's worth of recording. The reliance tally shares the ghost's
+   * lifetime exactly: both describe the run in progress and both are wrong the
+   * moment it restarts. */
   function startRecording() {
     ghostRec = world ? new T.Ghost.Recorder(world) : null;
+    aimStats = world ? new T.Aim.Tracker() : null;
+    aim.target = null;
   }
 
   /* Drop the network session, if there is one. Leaving a match is not a
@@ -446,6 +483,8 @@
     world = null;
     ghost = null;
     ghostRec = null;
+    aimStats = null;
+    aim.target = null;
     simAcc = 0;
   }
 
@@ -491,6 +530,31 @@
       par[1] + 's</span><span>BRONZE ' + par[2] + 's</span></div>';
   }
 
+  /* How much of that run was the game's doing.
+   *
+   * Only shown once assist has ever been switched on: a player who has never
+   * touched it does not need a row on every results screen telling them they
+   * did not use a feature they have never heard of. */
+  function tierColor(tier) {
+    return tier === 'CLEAN' ? P.gold
+      : tier === 'SHARP' ? P.goal
+        : tier === 'GUIDED' ? P.ink : 'rgba(233,237,255,0.55)';
+  }
+
+  function assistRows(a, isCleanPb, cleanBest) {
+    if (!a || (!a.level && !a.helped)) return '';
+    var out = row('AIM ASSIST', a.tier, tierColor(a.tier));
+    if (a.level) {
+      out += row('ASSIST RELIANCE', (a.use * 100).toFixed(1) + '%   ' +
+        '(' + a.helped + ' of ' + a.shots + ' shots)');
+    }
+    if (cleanBest) {
+      out += row('CLEAN BEST', M.fmtTime(cleanBest) + (isCleanPb ? '  ★' : ''),
+        isCleanPb ? P.gold : P.ink);
+    }
+    return out;
+  }
+
   function showResults() {
     var mode = world.mode, id = world.level.id;
     var t = world.displayTime();
@@ -499,9 +563,21 @@
     var g = world.grade();
     var medal = world.medal(t);
 
+    /* CLEAN and SHARP both count as unassisted for the clean best: SHARP means
+     * the safety net was switched on and never caught anything. Refusing it
+     * would be scoring the menu rather than the run, which is the one thing
+     * this whole feature is built not to do. */
+    var assist = aimStats ? aimStats.summary() : null;
+    var clean = !assist || T.Aim.rank(assist.tier) >= T.Aim.rank('SHARP');
+    var prevClean = getCleanBest(mode.id, id);
+    var isCleanPb = clean && (!prevClean || t < prevClean);
+
+    if (isCleanPb) write(k('cleanbest', mode.id, id), t);
+
     if (isPb) {
       write(k('best', mode.id, id), t);
       write(k('grade', mode.id, id), g);
+      write(k('besttier', mode.id, id), assist ? assist.tier : 'CLEAN');
       /* The ghost is saved with the personal best, because a ghost is the
        * personal best — the input stream that produced it, ready to be run
        * again. Nothing about the run's positions is stored; the next attempt
@@ -542,6 +618,7 @@
     }
 
     var rows = row('BEST', M.fmtTime(isPb ? t : prev));
+    rows += assistRows(assist, isCleanPb, isCleanPb ? t : prevClean);
     if (mode.scoring === 'medals') {
       rows += row('MEDAL', medal || 'NONE', medalColor(medal) || P.ink);
       rows += row('DEATHS', world.deaths, world.deaths ? P.hazard : P.ink);
@@ -708,8 +785,19 @@
       input.jumpHeld = !!(keys[' '] || keys.w || keys.arrowup || keys.spacebar);
       input.slowHeld = mouse.right || !!keys.shift;
       updateAim();
-      input.aimX = mouse.wx;
-      input.aimY = mouse.wy;
+      /* The assisted point, not the cursor. This is the only place assist
+       * enters the game: from here on it is just "where they aimed", and the
+       * sim, the wire and the ghost never learn otherwise. */
+      input.aimX = aim.x;
+      input.aimY = aim.y;
+
+      /* Bill the shot before the edge flag is cleared below. A shot is the
+       * only moment assist can have changed an outcome, so it is the only
+       * moment worth counting. */
+      if (aimStats) {
+        aimStats.note(assistLevel());
+        if (input.firePressed) aimStats.shot(aim.res);
+      }
     }
     var packed = Proto.pack(input);
     input.jumpPressed = false;
@@ -754,9 +842,32 @@
     keys = {}; mouse.down = false; mouse.right = false;
   });
 
+  /* Screen cursor to world point, and then through aim assist.
+   *
+   * Both the reticle and the packed input read `aim` rather than the raw
+   * cursor, which is the only way the crosshair can be telling the truth: if
+   * assist is going to bend the shot, the line you are shown has to be the
+   * bent one. It resolves here, in one place, instead of once for the sim and
+   * again for the drawing. */
   function updateAim() {
     mouse.wx = (mouse.sx - view.w * 0.5) / cam.zoom + cam.x - cam.shakeX;
     mouse.wy = (mouse.sy - view.h * 0.5) / cam.zoom + cam.y - cam.shakeY;
+
+    aim.wx = mouse.wx; aim.wy = mouse.wy;   // the cursor, where the hand is
+    var lvl = assistLevel();
+    if (!lvl || scene !== 'play' || !world || !world.player.active()) {
+      aim.x = mouse.wx; aim.y = mouse.wy;
+      aim.res = null; aim.target = null;
+      return;
+    }
+    var res = T.Aim.solve(world, world.player, mouse.wx, mouse.wy, lvl, aim.target);
+    aim.x = res.x; aim.y = res.y;
+    aim.res = res;
+    aim.target = res.target;
+  }
+
+  function assistLevel() {
+    return T.Settings ? (T.Settings.get('aimAssist') | 0) : 0;
   }
 
   canvas.addEventListener('mousemove', function (ev) {
@@ -1047,7 +1158,7 @@
       time: uiTime,
       alpha: renderAlpha,
       best: getBest(world.mode.id, world.level.id),
-      aim: scene === 'play' && world.state === 'playing' ? mouse : null,
+      aim: scene === 'play' && world.state === 'playing' ? aim : null,
       match: net ? match : null,
       stalled: !!(net && net.stalled),
       ghost: ghost && !ghost.done ? ghost : null,
