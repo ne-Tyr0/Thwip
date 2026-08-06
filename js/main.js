@@ -52,11 +52,21 @@
    * round's level. Everything that advances the match calls syncWorld() after
    * it, and that is the only place this is ever assigned. */
   var world = null;
+  /* The HUD's BEST line, read once per level instead of once per frame.
+   *
+   * This used to call getBest() from inside the draw call, which is a
+   * localStorage.getItem and a parseFloat sixty times a second for a number
+   * that changes at most once a run. Web storage is synchronous and is not
+   * guaranteed to be a memory lookup — on some browsers it is backed by a
+   * database — so this was the one place the render loop could block on I/O. */
+  var uiBest = null;
+  var ghostLabel = null;
 
   function syncWorld() {
     var next = match ? match.world : null;
     if (next === world) return;
     world = next;
+    uiBest = world ? getBest(world.mode.id, world.level.id) : null;
     if (world) {
       // a new round is a new level: drop the trails and re-frame the camera
       FX.reset();
@@ -250,7 +260,7 @@
    * lists "particles: half" with no explanation makes people guess at what
    * they are trading, so each control says what it costs or protects. */
   var SGROUPS = [
-    ['DISPLAY', ['resScale', 'fpsCap', 'fpsShow']],
+    ['DISPLAY', ['resScale', 'adaptive', 'fpsCap', 'fpsShow']],
     ['GRAPHICS', ['parallax', 'particles', 'trail', 'stars', 'facade', 'hatch',
       'vignette', 'smoothing']],
     ['COMFORT', ['shake', 'flashes', 'hints', 'ghost']]
@@ -443,7 +453,10 @@
     startRecording();
     ghost = T.Settings && T.Settings.get('ghost') === false
       ? null : T.Ghost.spawn(curMode.id, levelId);
+    // the ghost's time never changes, so neither does its label
+    ghostLabel = ghost ? M.fmtTime(ghost.time) : null;
     simAcc = 0;
+    adaptSettle();
     show('play');
   }
 
@@ -597,6 +610,7 @@
     if (isCleanPb) write(k('cleanbest', mode.id, id), t);
 
     if (isPb) {
+      uiBest = t;                      // the HUD reads this, not storage
       write(k('best', mode.id, id), t);
       write(k('grade', mode.id, id), g);
       /* The ghost is saved with the personal best, because a ghost is the
@@ -1056,9 +1070,76 @@
    * backing store is width * height * dpr^2 pixels, so halving the scale is a
    * quarter of the fill cost. The CSS size never changes, so the game still
    * fills the window — it is just rendered smaller and stretched up. */
+  /* ---- adaptive resolution ---------------------------------------------
+   * The one lever that always works, driven by what the machine is actually
+   * doing rather than by what it claims to be.
+   *
+   * settings.js explains at length why the old startup benchmark was deleted
+   * and must not come back in that form: it timed twenty frames during page
+   * load, with the webfont and twenty PNGs still decoding, and pinned capable
+   * machines to LOW on the strength of it. This is the opposite on every axis
+   * that mattered. It measures continuously during PLAY rather than once at the
+   * worst possible moment. It acts on a sustained count of missed frames
+   * rather than on a sample. It moves one small step at a time and climbs back
+   * up as readily as it drops. It never writes a stored setting — RESOLUTION
+   * still means exactly what the player set it to, and this only ever scales
+   * BELOW that — and it is never remembered across sessions, so a bad
+   * afternoon cannot leave the game permanently soft. And it says so: the FPS
+   * readout shows the factor whenever it is doing anything at all.
+   *
+   * Resolution only, deliberately. Toggling detail would pop — a layer or a
+   * shadow blinking in and out as the framerate wobbles is far more
+   * distracting than the same scene rendered slightly softer. */
+  var ADAPT_STEPS = [1, 0.85, 0.72, 0.6, 0.5];
+  var adapt = { step: 0, hold: 2000, n: 0, slow: 0, fast: 0, good: 0 };
+
+  /* Ignore the next stretch of frames: a page load, a level start, a resize
+   * and a step of its own are all moments when a frame time says nothing about
+   * the machine. In MILLISECONDS rather than frames, because a frame count is
+   * a longer wall-clock wait the slower the machine is, which is precisely
+   * backwards — the struggling machine would be the one kept waiting. */
+  function adaptSettle(ms) {
+    adapt.hold = ms || 2000;
+    adapt.n = adapt.slow = adapt.fast = 0;
+  }
+
+  function adaptFrame(ms) {
+    var S = T.Settings;
+    if (!S || !S.get('adaptive')) {
+      if (adapt.step !== 0) { adapt.step = 0; adaptSettle(); resize(); }
+      return;
+    }
+    if (adapt.hold > 0) { adapt.hold -= ms; return; }
+
+    /* The budget is 60fps, or the frame limit if one is set. A display that
+     * is simply vsynced at 60 lands ON the budget rather than over it, so a
+     * machine coasting at its refresh rate is never mistaken for one that is
+     * struggling — this only ever engages when 60 genuinely is not being met. */
+    var cap = S.get('fpsCap');
+    var budget = 1000 / (cap > 0 ? cap : 60);
+    adapt.n++;
+    if (ms > budget * 1.15) adapt.slow++;
+    else if (ms < budget * 0.75) adapt.fast++;
+    if (adapt.n < 45) return;
+
+    var n = adapt.n, slow = adapt.slow, fast = adapt.fast;
+    adapt.n = adapt.slow = adapt.fast = 0;
+
+    if (slow > n * 0.5 && adapt.step < ADAPT_STEPS.length - 1) {
+      // half the window missed: drop a step now, and judge nothing for a beat
+      adapt.step++; adapt.good = 0; adaptSettle(600); resize();
+    } else if (fast > n * 0.9 && adapt.step > 0) {
+      // climbing back resizes the buffer and re-bakes the sky, so make it earn
+      // the trip: four clean windows in a row, not one lucky one
+      if (++adapt.good >= 4) { adapt.step--; adapt.good = 0; adaptSettle(600); resize(); }
+    } else {
+      adapt.good = 0;
+    }
+  }
+
   function resize() {
     var S = T.Settings;
-    var scale = S ? S.get('resScale') : 1;
+    var scale = (S ? S.get('resScale') : 1) * ADAPT_STEPS[adapt.step];
     view.dpr = Math.min(2, global.devicePixelRatio || 1) * scale;
     view.w = canvas.clientWidth || global.innerWidth;
     view.h = canvas.clientHeight || global.innerHeight;
@@ -1069,12 +1150,24 @@
       ? 'pixelated' : 'auto';
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   }
-  global.addEventListener('resize', resize);
-  // a settings change can alter the backing-store size, so re-fit immediately
+  global.addEventListener('resize', function () { adaptSettle(1000); resize(); });
+  /* A settings change can alter the backing-store size, so re-fit immediately.
+   * It also invalidates whatever the scaler had concluded — the frames it
+   * judged were drawn at a different quality — so the measurement restarts.
+   * And switching the scaler OFF has to hand the resolution back
+   * here rather than on the next play frame, or turning it off from the menu
+   * looks like it did nothing until you start a level. */
   var chain = T.onSettingsChange;
-  T.onSettingsChange = function () { if (chain) chain(); resize(); };
+  T.onSettingsChange = function () {
+    if (chain) chain();
+    if (T.Settings && !T.Settings.get('adaptive')) adapt.step = 0;
+    adaptSettle();
+    resize();
+  };
 
   var wasSliding = false, wasDead = false;
+  var ui = { time: 0, alpha: 1, best: null, aim: null, match: null,
+    stalled: false, ghost: null, ghostLabel: null };
 
   /* ---- the driver -------------------------------------------------------
    * Real seconds in, whole ticks out. This is the only place the two clocks
@@ -1177,16 +1270,17 @@
     }
 
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
-    T.Render.draw(ctx, view, world, cam, {
-      time: uiTime,
-      alpha: renderAlpha,
-      best: getBest(world.mode.id, world.level.id),
-      aim: scene === 'play' && world.state === 'playing' ? aim : null,
-      match: net ? match : null,
-      stalled: !!(net && net.stalled),
-      ghost: ghost && !ghost.done ? ghost : null,
-      ghostLabel: ghost ? M.fmtTime(ghost.time) : null
-    });
+    // one object, refilled — this was a fresh literal every frame, and the
+    // ghost's label was a fresh formatted string with it
+    ui.time = uiTime;
+    ui.alpha = renderAlpha;
+    ui.best = uiBest;
+    ui.aim = scene === 'play' && world.state === 'playing' ? aim : null;
+    ui.match = net ? match : null;
+    ui.stalled = !!(net && net.stalled);
+    ui.ghost = ghost && !ghost.done ? ghost : null;
+    ui.ghostLabel = ghost ? ghostLabel : null;
+    T.Render.draw(ctx, view, world, cam, ui);
   }
 
   /* ---- frame pacing + FPS readout ---------------------------------------
@@ -1194,7 +1288,12 @@
    * display rate, and we simply return until enough time has passed. A steady
    * 30 reads as far smoother than an unstable 55, and on a laptop it is the
    * difference between warm and roaring. */
-  var last = 0, fpsHist = [], fpsShown = 0, fpsTimer = 0, nextDue = 0;
+  /* A ring rather than a queue. push/shift on a 120-entry array moves every
+   * element in it once a frame, forever, for a readout most people never turn
+   * on — and it churned a number object per frame while it did. */
+  var FPS_N = 120;
+  var fpsHist = new Float64Array(FPS_N), fpsAt = 0, fpsFill = 0, fpsSum = 0;
+  var last = 0, fpsShown = 0, fpsTimer = 0, nextDue = 0;
 
   function frame(now) {
     requestAnimationFrame(frame);
@@ -1220,16 +1319,23 @@
     var dt = Math.min(0.05, raw);
     step(dt);
 
-    // frame-time history for the counter and its graph
-    fpsHist.push(raw * 1000);
-    if (fpsHist.length > 120) fpsHist.shift();
+    // frame-time history for the counter, its graph, and the adaptive scaler.
+    // The running sum is maintained rather than re-added every quarter second.
+    var ms = raw * 1000;
+    fpsSum += ms - fpsHist[fpsAt];
+    fpsHist[fpsAt] = ms;
+    fpsAt = (fpsAt + 1) % FPS_N;
+    if (fpsFill < FPS_N) fpsFill++;
     fpsTimer += raw;
     if (fpsTimer > 0.25) {
       fpsTimer = 0;
-      var sum = 0;
-      for (var i = 0; i < fpsHist.length; i++) sum += fpsHist[i];
-      fpsShown = sum > 0 ? Math.round(1000 / (sum / fpsHist.length)) : 0;
+      fpsShown = fpsSum > 0 ? Math.round(1000 / (fpsSum / fpsFill)) : 0;
     }
+
+    // measured only while playing: a menu frame draws one rect and would tell
+    // the scaler this machine is faster than it is
+    if (scene === 'play') adaptFrame(ms); else adaptSettle();
+
     if (T.Q && T.Q.fpsShow) drawFps();
   }
 
@@ -1247,17 +1353,22 @@
       // 16.7ms reference line: above it is a missed frame at 60
       ctx.fillStyle = 'rgba(255,255,255,0.16)';
       ctx.fillRect(gx, gy + h - 16.7 / 40 * h, w, 1);
-      for (var i = 0; i < fpsHist.length; i++) {
-        var v = Math.min(40, fpsHist[i]);
-        var bh = Math.max(1, v / 40 * h);
-        ctx.fillStyle = fpsHist[i] > 33 ? P.hazard : fpsHist[i] > 17 ? P.gold : P.goal;
+      for (var i = 0; i < fpsFill; i++) {
+        // oldest first, so the graph still reads left to right
+        var f = fpsHist[(fpsAt + FPS_N - fpsFill + i) % FPS_N];
+        var bh = Math.max(1, Math.min(40, f) / 40 * h);
+        ctx.fillStyle = f > 33 ? P.hazard : f > 17 ? P.gold : P.goal;
         ctx.fillRect(gx + i, gy + h - bh, 1, bh);
       }
     }
     ctx.font = 'bold 13px ' + T.FONT;
     ctx.textAlign = 'right';
     ctx.fillStyle = fpsShown < 30 ? P.hazard : fpsShown < 55 ? P.gold : P.goal;
-    ctx.fillText(fpsShown + ' FPS', x, y);
+    // never let adaptive resolution be a mystery: if it has scaled the buffer
+    // down, the readout says by how much
+    ctx.fillText(adapt.step > 0
+      ? fpsShown + ' FPS · ' + Math.round(ADAPT_STEPS[adapt.step] * 100) + '%'
+      : fpsShown + ' FPS', x, y);
     ctx.textAlign = 'left';
   }
 

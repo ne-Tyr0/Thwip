@@ -28,6 +28,13 @@
       opts: [[0, 'UNCAPPED'], [30, '30'], [45, '45'], [60, '60'], [120, '120']],
       help: 'A steady 30 feels better than an unstable 55. Also saves battery.'
     },
+    adaptive: {
+      kind: 'bool', def: true, label: 'ADAPTIVE RESOLUTION',
+      help: 'Drops the render scale below your RESOLUTION setting, in small ' +
+        'steps, if the machine stops holding 60 — and puts it back the moment ' +
+        'it can. Never changes a setting and is never remembered, so it ' +
+        'cannot leave the game quietly soft. The FPS counter shows the factor.'
+    },
     fpsShow: {
       kind: 'pick', def: 0, label: 'FPS COUNTER',
       opts: [[0, 'OFF'], [1, 'FPS ONLY'], [2, 'FPS + GRAPH']],
@@ -87,11 +94,13 @@
 
   /* Presets write real values, so there is never a preset/option mismatch.
    *
-   * They deliberately do NOT touch fpsCap. A frame limit is a preference —
-   * about battery, fan noise, or matching a display — not a quality level.
-   * Bundling `fpsCap: 30` into LOW meant anything that selected LOW silently
-   * halved the framerate, which is indistinguishable from the game being
-   * slow. That is the opposite of what a performance preset is for. */
+   * They deliberately do NOT touch fpsCap or adaptive. A frame limit is a
+   * preference — about battery, fan noise, or matching a display — not a
+   * quality level. Bundling `fpsCap: 30` into LOW meant anything that selected
+   * LOW silently halved the framerate, which is indistinguishable from the game
+   * being slow. That is the opposite of what a performance preset is for, and
+   * the same argument applies to the adaptive scaler: it is a safety net that
+   * should be on at every quality level, not a rung on the ladder. */
   var PRESETS = {
     LOW: { resScale: 0.5, parallax: 0, particles: 0, trail: false, stars: false,
       facade: false, hatch: false, vignette: false },

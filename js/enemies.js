@@ -28,6 +28,10 @@
     this.dir0 = def.dir || 1;
     this.webbable = def.type !== 'armor';
     this.seed = (seed >>> 0) || 1;
+    // collision scratch owned by this unit — see the note on Player.box
+    this._box = { x: 0, y: 0, w: this.w, h: this.h };
+    this._probe = { x: 0, y: 0, w: 6, h: 6 };
+    this._wall = { x: 0, y: 0, w: this.w, h: this.h - 4 };
     this.reset();
   }
 
@@ -49,7 +53,11 @@
     this.phase = rnd.float() * 6.28;
   };
 
-  Enemy.prototype.box = function () { return { x: this.x, y: this.y, w: this.w, h: this.h }; };
+  Enemy.prototype.box = function () {
+    var b = this._box;
+    b.x = this.x; b.y = this.y; b.w = this.w; b.h = this.h;
+    return b;
+  };
   Enemy.prototype.cx = function () { return this.x + this.w * 0.5; };
   Enemy.prototype.cy = function () { return this.y + this.h * 0.5; };
 
@@ -70,15 +78,15 @@
     if (next < this.minX) { next = this.minX; this.dir = 1; }
     else if (next + this.w > this.maxX) { next = this.maxX - this.w; this.dir = -1; }
 
-    var probe = {
-      x: this.dir > 0 ? next + this.w - 2 : next - 4,
-      y: this.y + this.h, w: 6, h: 6
-    };
+    var probe = this._probe;
+    probe.x = this.dir > 0 ? next + this.w - 2 : next - 4;
+    probe.y = this.y + this.h;
     var footing = false, k;
     for (k = 0; k < world.solids.length; k++) {
       if (Ph.overlap(probe, world.solids[k])) { footing = true; break; }
     }
-    var wall = { x: next, y: this.y + 2, w: this.w, h: this.h - 4 };
+    var wall = this._wall;
+    wall.x = next; wall.y = this.y + 2;
     for (k = 0; k < world.solids.length; k++) {
       if (Ph.overlap(wall, world.solids[k])) { footing = false; break; }
     }

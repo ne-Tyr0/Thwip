@@ -11,6 +11,9 @@
   var noiseBuf = null;
   var wind = null, windGain = null, windFilter = null;
   var muted = false, started = false;
+  // last values pushed at the wind and the master tone, so a frame that asks
+  // for what is already scheduled schedules nothing
+  var lastSpeed = -1, lastSlow = -1;
 
   function init() {
     if (started) return true;
@@ -218,16 +221,27 @@
       if (!started || muted || !SFX[name]) return;
       try { SFX[name](now() + 0.001, opts); } catch (e) { /* never let audio kill a frame */ }
     },
-    /* wind rises with speed; the master lowpass closes down during slow-mo */
+    /* Wind rises with speed; the master lowpass closes down during slow-mo.
+     *
+     * Both are called every frame, and both used to schedule an automation
+     * event every time — 180 of them a second, queued on three AudioParams,
+     * almost all of them asking for the value the param was already heading
+     * to. The ramps have 50-100ms time constants, so a change smaller than
+     * these thresholds is inaudible; only a real move is scheduled now. */
     setSpeed: function (speed01) {
       if (!started) return;
       var g = M.clamp(speed01, 0, 1);
+      if (Math.abs(g - lastSpeed) < 0.01) return;
+      lastSpeed = g;
       windGain.gain.setTargetAtTime(g * g * 0.22, now(), 0.08);
       windFilter.frequency.setTargetAtTime(500 + g * 1500, now(), 0.1);
     },
     setSlowmo: function (t) {
       if (!started) return;
-      tone.frequency.setTargetAtTime(M.lerp(20000, 850, M.clamp(t, 0, 1)), now(), 0.05);
+      var v = M.clamp(t, 0, 1);
+      if (Math.abs(v - lastSlow) < 0.01) return;
+      lastSlow = v;
+      tone.frequency.setTargetAtTime(M.lerp(20000, 850, v), now(), 0.05);
     },
     toggleMute: function () {
       muted = !muted;

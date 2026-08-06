@@ -26,6 +26,14 @@
     this.spawnX = x;
     this.spawnY = y;
     this.deaths = 0;
+    /* Collision scratch, owned by this body. box() used to build a fresh rect
+     * on every call and it is called a dozen times per sub-step; the wall probe
+     * built two more. One rect per body, refreshed in place, is the same
+     * numbers with none of the garbage. Two bodies never share one, so
+     * overlap(a.box(), b.box()) still compares two distinct rects. */
+    this._box = { x: 0, y: 0, w: this.w, h: this.h };
+    this._wl = { x: 0, y: 0, w: C.WALL_PROBE, h: 0 };
+    this._wr = { x: 0, y: 0, w: C.WALL_PROBE, h: 0 };
     this.resetRun();
     this.reset(x, y);
   }
@@ -82,7 +90,12 @@
 
   Player.prototype.cx = function () { return this.x + this.w * 0.5; };
   Player.prototype.cy = function () { return this.y + this.h * 0.5; };
-  Player.prototype.box = function () { return { x: this.x, y: this.y, w: this.w, h: this.h }; };
+  /* Valid until the next call on THIS body. Nothing keeps one. */
+  Player.prototype.box = function () {
+    var b = this._box;
+    b.x = this.x; b.y = this.y; b.w = this.w; b.h = this.h;
+    return b;
+  };
   Player.prototype.speed = function () { return M.len(this.vx, this.vy); };
   Player.prototype.airborne = function () { return !this.grounded; };
   Player.prototype.swinging = function () { return !!this.web && this.web.taut; };
@@ -146,8 +159,9 @@
   Player.prototype.wallSide = function (solids) {
     var i, s;
     var yTop = this.y + 4, hh = this.h - 8;
-    var left = { x: this.x - C.WALL_PROBE, y: yTop, w: C.WALL_PROBE, h: hh };
-    var right = { x: this.x + this.w, y: yTop, w: C.WALL_PROBE, h: hh };
+    var left = this._wl, right = this._wr;
+    left.x = this.x - C.WALL_PROBE; left.y = yTop; left.h = hh;
+    right.x = this.x + this.w; right.y = yTop; right.h = hh;
     for (i = 0; i < solids.length; i++) {
       s = solids[i];
       if (Ph.overlap(right, s)) return 1;

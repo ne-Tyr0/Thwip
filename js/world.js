@@ -71,6 +71,14 @@
     this.rayTargetsSolid = this.blockerTargets;
     this.staticTargets = this.anchorTargets.concat(this.blockerTargets);
     this._targets = [];
+    /* Scratch rects for the per-step collision tests. These are the hottest
+     * object literals in the file: a bullet built one every sub-step, a
+     * web-shot built two, and the safe-ground probe built one per player.
+     * None of them outlives the test it is used for. */
+    this._hbox = { x: 0, y: 0, w: 0, h: 0 };
+    this._sbox = { x: 0, y: 0, w: C.WEB_SHOT_R * 2, h: C.WEB_SHOT_R * 2 };
+    this._stip = { x: 0, y: 0, w: 0, h: 0 };
+    this._safe = { x: 0, y: 0, w: 0, h: 0 };
 
     // pieces that need per-step work, pulled out once so step() isn't walking
     // the whole anchor list on maps that have none of them
@@ -95,6 +103,16 @@
       // seeded from the match seed and the unit's slot, so every client gets
       // the same patrol stagger and a retry gets the same one again
       return new T.Enemy(d, M.seedOf(self.seed, k + 1));
+    });
+    /* One raycast target per enemy, built once and refreshed in place.
+     * buildTargets runs on every reticle frame and on every candidate aim
+     * assist evaluates — half a dozen times a frame — and it used to allocate
+     * a wrapper and an inflated rect per live enemy each time. These rects DO
+     * outlive the call that fills them (the array is handed to raycast and read
+     * afterwards), which is why they are owned here rather than borrowed from
+     * Physics' scratch. */
+    this.enemyTargets = this.enemies.map(function (e) {
+      return { rect: { x: 0, y: 0, w: 0, h: 0 }, kind: 'enemy', ref: e };
     });
     this.bullets = [];
     this.webShots = [];       // web-shots in flight, see updateWebShots
@@ -281,22 +299,30 @@
    * players are deliberately NOT targets: bodies are things you bump into, not
    * things you tie a rope to. */
   World.prototype.buildTargets = function () {
-    var t = this._targets, i, e, s;
-    t.length = 0;
-    for (i = 0; i < this.staticTargets.length; i++) {
-      s = this.staticTargets[i];
+    var t = this._targets, st = this.staticTargets, et = this.enemyTargets;
+    var i, s, n = 0;
+    for (i = 0; i < st.length; i++) {
+      s = st[i];
       // a snapped ring is not there any more, for the ray or the reticle
       if (s.kind === 'anchor' && s.ref.broken) continue;
-      t.push(s);
+      t[n++] = s;
     }
-    for (i = 0; i < this.enemies.length; i++) {
-      e = this.enemies[i];
-      if (!e.stuck) t.push({ rect: Ph.inflate(e.box(), 4), kind: 'enemy', ref: e });
+    for (i = 0; i < et.length; i++) {
+      if (et[i].ref.stuck) continue;
+      Ph.inflateInto(et[i].rect, et[i].ref.box(), 4);
+      t[n++] = et[i];
     }
+    t.length = n;
     return t;
   };
 
-  /* What a shot would hit right now — for the reticle. No side effects. */
+  /* What a shot would hit right now — for the reticle. No side effects.
+   *
+   * The record is scratch and is valid until the next call. Aim assist walks
+   * a handful of candidates through here every frame and the crosshair asks
+   * again straight after; both read it before asking again. */
+  var _shot = { kind: null, ref: null, x: 0, y: 0 };
+
   World.prototype.previewShot = function (aimX, aimY, p) {
     p = p || this.player;
     var cx = p.cx(), cy = p.cy();
@@ -305,7 +331,11 @@
     if (l < 0.0001) return null;
     var hit = Ph.raycast(cx, cy, dx / l, dy / l, C.WEB_RANGE, this.buildTargets());
     if (!hit) return null;
-    return { kind: hit.target.kind, ref: hit.target.ref, x: hit.x, y: hit.y };
+    _shot.kind = hit.target.kind;
+    _shot.ref = hit.target.ref;
+    _shot.x = hit.x;
+    _shot.y = hit.y;
+    return _shot;
   };
 
   World.prototype.fire = function (aimX, aimY, p) {
@@ -714,9 +744,10 @@
       s.life -= dt;
       gone = s.life <= 0;
       owner = this.players[s.owner || 0] || this.players[0];
-      box = { x: s.x - C.WEB_SHOT_R, y: s.y - C.WEB_SHOT_R,
-        w: C.WEB_SHOT_R * 2, h: C.WEB_SHOT_R * 2 };
-      tip = { x: s.x, y: s.y, w: 0, h: 0 };
+      box = this._sbox;
+      box.x = s.x - C.WEB_SHOT_R; box.y = s.y - C.WEB_SHOT_R;
+      tip = this._stip;
+      tip.x = s.x; tip.y = s.y;
 
       if (!gone) {
         for (k = 0; k < this.enemies.length; k++) {
@@ -861,7 +892,8 @@
       b = this.bullets[i];
       b.x += b.vx * dt; b.y += b.vy * dt;
       b.life -= dt;
-      box = { x: b.x - b.r, y: b.y - b.r, w: b.r * 2, h: b.r * 2 };
+      box = this._hbox;
+      box.x = b.x - b.r; box.y = b.y - b.r; box.w = b.r * 2; box.h = b.r * 2;
       gone = b.life <= 0;
       if (!gone) {
         for (k = 0; k < this.solids.length; k++) {
@@ -934,7 +966,7 @@
     for (i = 0; i < this.players.length && this.safeTimer <= 0; i++) {
       p = this.players[i];
       if (!p.active() || !p.grounded) continue;
-      if (this.onHazard(Ph.inflate(p.box(), 70))) continue;
+      if (this.onHazard(Ph.inflateInto(this._safe, p.box(), 70))) continue;
       this.lastSafe.x = p.cx();
       this.lastSafe.y = p.y + p.h;
       this.safeTimer = 0.12;

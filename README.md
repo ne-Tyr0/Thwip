@@ -496,12 +496,27 @@ exactly how a missing helper made every level completion freeze the game.
 ### Profiling
 
 ```bash
-# open tools/bench.html in a browser; add ?mocks to measure the art path
+npm run perf                  # headless: calls, garbage and canvas memory
+npm run perf -- spire         # one scene
+# or open tools/bench.html in a browser; add ?mocks to measure the art path
 ```
 
-It counts canvas operations per frame and reports the heaviest. Draw calls are
-the right metric here because they are hardware-independent — a weak device
-fails on call volume long before it fails on arithmetic.
+`tools/perf.js` runs the real renderer against a counting canvas and reports
+four numbers per scene. Three of them are hardware-independent, which is the
+point — a regression shows up identically on the machine that wrote the code
+and the machine that has to run it:
+
+| number | what it is worth |
+| --- | --- |
+| **calls/frame** | exact. A software rasteriser fails on canvas call *volume* long before it fails on arithmetic, and a state write (`fillStyle`, `globalAlpha`) costs the same at the boundary as a `fillRect` |
+| **canvas MB** | exact. Offscreen bakes, held for as long as the level is; on an integrated part they compete with everything else for the same memory. The only large allocations the renderer makes |
+| KB/frame | a hint. It catches an allocation regression of the order of a kilobyte a frame, but V8's own bookkeeping is the same order of magnitude as the signal, so several-hundred-percent swings on *identical* code are normal. Do not quote it |
+| ms/frame | a hint. JS-side only, so it says nothing about fill rate — which is most of the cost on the hardware this is aimed at |
+
+Timing and allocation are the **best of three windows** rather than the average,
+so a single window that caught a collection cannot dominate. That is enough to
+make the timing usable and still not enough to make the byte figure a number
+you would put in a table — which is why there isn't one below.
 
 Measured that way, the renderer had one catastrophic bug and several ordinary
 ones. Nine-slice tiling issued one `drawImage` per tile, so a 620 x 17,000
@@ -521,6 +536,88 @@ cost no longer depends on size; parallax layers and the starfield are baked to
 offscreen canvases once instead of being re-drawn rect-by-rect every frame;
 spike teeth are clipped to the camera and batched into a single path; and the
 sky and vignette gradients are cached rather than rebuilt per frame.
+
+### The low-end pass
+
+Call counts were already lean; what was not lean was **fill rate and memory**,
+and neither of those shows up in a call count at all.
+
+*The sky.* The gradient object was cached, the per-pixel gradient *fill* was
+not — a full-screen evaluation every frame — and the starfield was a second
+full-screen pass blended over it. Both are now baked into one image at the
+backing-store size and blitted 1:1 with the transform reset, so the entire sky
+is a single opaque copy and gets automatically cheaper when RESOLUTION is
+turned down. The cost was the starfield's twinkle: a ±18% global alpha wobble
+over an eight-second period, baked at its mean.
+
+*The clock.* Setting `shadowBlur` before the largest text on screen, every
+frame. A blur is a separable convolution over the glyph box with no cheap path
+without a GPU. It is a drawn drop shadow now — one more `fillText`.
+
+*The parallax city.* A layer is a strip as wide as the level times its parallax
+factor; three of them came to **45 MB of offscreen canvas** on the widest map,
+by a wide margin the largest thing the game allocated. What is stored in all
+that space is flat building silhouettes and 3x4px window dots at 30% alpha,
+six hundred pixels behind a player moving at 1,400px/s. Baked at half scale
+with a hard byte budget behind it, and a source that fits in cache generally
+blits *faster* than one four times the size:
+
+| | canvas held per level | style writes / frame |
+| --- | --- | --- |
+| FAST / overpass | 44.8 MB → **11.2 MB** | 120 → 116 |
+| CLASSIC / gauntlet | 42.0 MB → **10.5 MB** | 108 → 106 |
+| FAST / nightshift | 42.0 MB → **10.5 MB** | 120 → 97 |
+| EXTRA BIG / midtown | 35.1 MB → **6.1 MB** | 111 → 88 |
+| EXTRA BIG / spire | 28.1 MB → **6.1 MB** | 109 → 84 |
+
+*The churn.* `sweep`, `raycast`, `onGround`, `box()` and the enemy patrol
+probes all handed back a fresh object, several times per body per sub-step.
+They write into scratch owned by the caller now — the contract is that a
+returned scratch is valid until the next call to the same function, and nothing
+here is re-entrant. Particles are pooled and swept in one pass instead of
+spliced one at a time. `previewShot` and `buildTargets` are allocation-free,
+which matters because aim assist walks half a dozen candidates through them
+every frame. The simulation is **bit-for-bit identical** through all of it —
+`npm run test:determinism` is the gate.
+
+No number is quoted for that last paragraph on purpose. It is structural — you
+can read the call sites and see that the allocations are gone — and the
+available instrument cannot measure it: a `heapUsed` delta over a few thousand
+ticks swings by an order of magnitude run to run on unchanged code, because
+V8's own bookkeeping is the same size as the thing being weighed. A figure
+derived from it would look authoritative and mean nothing.
+
+*The frame loop.* The HUD's BEST line was a `localStorage.getItem` and a
+`parseFloat` sixty times a second, for a number that changes at most once a
+run — web storage is synchronous and is not guaranteed to be a memory lookup.
+Font shorthands, `rgba()` strings and name-tag widths are memoised. The wind
+and the master lowpass stopped scheduling 180 AudioParam events a second to
+ask for values they were already heading to.
+
+### Adaptive resolution
+
+`DISPLAY → ADAPTIVE RESOLUTION`, on by default. It watches real frame times
+during play and steps the render scale down below your RESOLUTION setting —
+1, 0.85, 0.72, 0.6, 0.5 — when half of a 45-frame window misses the budget,
+and climbs back after four clean windows in a row.
+
+There used to be a startup benchmark here and it was deleted for good reason
+(see the note at the bottom of `js/settings.js`): it timed twenty frames during
+page load, with the webfont and twenty PNGs still decoding, and pinned capable
+machines to LOW. This is the opposite on every axis that mattered. It measures
+continuously during play rather than once at the worst possible moment; it acts
+on a sustained count of missed frames rather than a sample; it moves one small
+step at a time; it never writes a stored setting, so RESOLUTION still means
+what you set it to; it is never remembered across sessions, so a bad afternoon
+cannot leave the game quietly soft; and the FPS counter shows the factor
+whenever it is doing anything.
+
+The budget is 60fps, or the frame limit if one is set. A display simply vsynced
+at 60 lands *on* the budget rather than over it, so a machine coasting at its
+refresh rate is never mistaken for one that is struggling — this only engages
+when 60 genuinely is not being met. It scales resolution and nothing else:
+toggling detail would pop, and a layer blinking in and out as the framerate
+wobbles is far more distracting than the same scene rendered slightly softer.
 
 **Everything is viewport-culled** — solids, hazards, anchors, pads, enemies,
 the goal, bullets, the motion trail and particles. Particles were the last
